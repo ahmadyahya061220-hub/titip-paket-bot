@@ -15,73 +15,116 @@ app.listen(PORT, () => {
   console.log("Server running on port " + PORT);
 });
 
+let users = {};
+
 // MENU UTAMA
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id,
 `🚀 *LAYANAN TITIP PAKET*
 
-Silakan pilih menu di bawah ini 👇`,
+Silakan pilih menu 👇`,
 {
   parse_mode: "Markdown",
   reply_markup: {
     keyboard: [
       ["📦 Titip Paket"],
-      ["💰 Cek Harga", "📊 Cek Resi"],
-      ["☎️ Customer Service"]
+      ["❌ Batal"]
     ],
     resize_keyboard: true
   }
 });
 });
 
-// RESPON MENU
+// HANDLE MESSAGE
 bot.on("message", (msg) => {
 
   const chatId = msg.chat.id;
   const text = msg.text;
 
+  if (!users[chatId]) users[chatId] = { step: 0 };
+
+  // BATALKAN
+  if (text === "❌ Batal") {
+    users[chatId] = { step: 0 };
+    return bot.sendMessage(chatId, "Transaksi dibatalkan.");
+  }
+
+  // MULAI TITIP
   if (text === "📦 Titip Paket") {
-    bot.sendMessage(chatId,
-`📦 *TITIP PAKET*
+    users[chatId] = { step: 1 };
+    return bot.sendMessage(chatId, "Masukkan *Nama Pengirim:*", { parse_mode: "Markdown" });
+  }
 
-Silakan kirim data berikut:
+  // STEP 1
+  if (users[chatId].step === 1) {
+    users[chatId].namaPengirim = text;
+    users[chatId].step = 2;
+    return bot.sendMessage(chatId, "Masukkan *Alamat Pengirim:*", { parse_mode: "Markdown" });
+  }
 
-Nama Pengirim:
-Alamat Pengirim:
-Nama Penerima:
-Alamat Penerima:
-Berat (kg):`,
+  // STEP 2
+  if (users[chatId].step === 2) {
+    users[chatId].alamatPengirim = text;
+    users[chatId].step = 3;
+    return bot.sendMessage(chatId, "Masukkan *Nama Penerima:*", { parse_mode: "Markdown" });
+  }
+
+  // STEP 3
+  if (users[chatId].step === 3) {
+    users[chatId].namaPenerima = text;
+    users[chatId].step = 4;
+    return bot.sendMessage(chatId, "Masukkan *Alamat Penerima:*", { parse_mode: "Markdown" });
+  }
+
+  // STEP 4
+  if (users[chatId].step === 4) {
+    users[chatId].alamatPenerima = text;
+    users[chatId].step = 5;
+    return bot.sendMessage(chatId, "Masukkan *Berat Paket (kg):*", { parse_mode: "Markdown" });
+  }
+
+  // STEP 5 (KONFIRMASI)
+  if (users[chatId].step === 5) {
+
+    const berat = parseFloat(text);
+
+    if (isNaN(berat)) {
+      return bot.sendMessage(chatId, "Masukkan angka berat yang valid.");
+    }
+
+    users[chatId].berat = berat;
+    users[chatId].step = 6;
+
+    return bot.sendMessage(chatId,
+`📦 *KONFIRMASI DATA*
+
+Nama Pengirim: ${users[chatId].namaPengirim}
+Alamat Pengirim: ${users[chatId].alamatPengirim}
+
+Nama Penerima: ${users[chatId].namaPenerima}
+Alamat Penerima: ${users[chatId].alamatPenerima}
+
+Berat: ${berat} kg
+
+Ketik *YA* untuk lanjut.`,
 { parse_mode: "Markdown" });
   }
 
-  else if (text === "💰 Cek Harga") {
+  // FINAL
+  if (users[chatId].step === 6 && text.toUpperCase() === "YA") {
+
+    const resi = "INDO" + Date.now();
+
     bot.sendMessage(chatId,
-`💰 *CEK HARGA*
+`✅ *TITIP PAKET BERHASIL*
 
-Contoh harga:
-1kg = Rp12.000
-2kg = Rp20.000
-3kg = Rp28.000
+Nomor Resi:
+${resi}
 
-Harga sudah termasuk biaya admin.`,
+Terima kasih 🙏`,
 { parse_mode: "Markdown" });
-  }
 
-  else if (text === "📊 Cek Resi") {
-    bot.sendMessage(chatId,
-`📊 *CEK RESI*
-
-Silakan kirim nomor resi Anda.`,
-{ parse_mode: "Markdown" });
-  }
-
-  else if (text === "☎️ Customer Service") {
-    bot.sendMessage(chatId,
-`☎️ *CUSTOMER SERVICE*
-
-Hubungi admin:
-@username_admin`,
-{ parse_mode: "Markdown" });
+    users[chatId] = { step: 0 };
   }
 
 });
