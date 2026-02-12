@@ -1,13 +1,17 @@
 {
   "name": "titip-paket-bot",
   "version": "1.0.0",
+  "description": "Bot Titip Paket",
   "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": "18.x"
+  },
   "dependencies": {
-    "dotenv": "^16.0.0",
+    "dotenv": "^16.4.0",
     "node-telegram-bot-api": "^0.61.0",
-    "puppeteer": "^21.0.0"
+    "puppeteer": "^21.7.0"
   }
-}
-"scripts": {
-  "start": "node index.js"
 }
