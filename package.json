@@ -8,3 +8,6 @@
     "puppeteer": "^21.0.0"
   }
 }
+"scripts": {
+  "start": "node index.js"
+}
