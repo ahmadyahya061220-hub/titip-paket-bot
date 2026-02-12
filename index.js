@@ -5,6 +5,7 @@ const express = require("express");
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 const app = express();
 
+const ADMIN_ID = process.env.ADMIN_ID;
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
@@ -16,26 +17,28 @@ app.listen(PORT, () => {
 });
 
 let users = {};
+let transaksi = [];
 
-// MENU UTAMA
+function hitungHarga(berat) {
+  const hargaPerKg = 10000;
+  const profit = 2000;
+  return (hargaPerKg * berat) + profit;
+}
+
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id,
 `🚀 *LAYANAN TITIP PAKET*
 
-Silakan pilih menu 👇`,
+Klik 📦 Titip Paket untuk mulai`,
 {
   parse_mode: "Markdown",
   reply_markup: {
-    keyboard: [
-      ["📦 Titip Paket"],
-      ["❌ Batal"]
-    ],
+    keyboard: [["📦 Titip Paket"]],
     resize_keyboard: true
   }
 });
 });
 
-// HANDLE MESSAGE
 bot.on("message", (msg) => {
 
   const chatId = msg.chat.id;
@@ -43,88 +46,102 @@ bot.on("message", (msg) => {
 
   if (!users[chatId]) users[chatId] = { step: 0 };
 
-  // BATALKAN
-  if (text === "❌ Batal") {
-    users[chatId] = { step: 0 };
-    return bot.sendMessage(chatId, "Transaksi dibatalkan.");
-  }
-
-  // MULAI TITIP
   if (text === "📦 Titip Paket") {
     users[chatId] = { step: 1 };
-    return bot.sendMessage(chatId, "Masukkan *Nama Pengirim:*", { parse_mode: "Markdown" });
+    return bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
   }
 
-  // STEP 1
   if (users[chatId].step === 1) {
-    users[chatId].namaPengirim = text;
+    users[chatId].nama = text;
     users[chatId].step = 2;
-    return bot.sendMessage(chatId, "Masukkan *Alamat Pengirim:*", { parse_mode: "Markdown" });
+    return bot.sendMessage(chatId, "Masukkan Nama Penerima:");
   }
 
-  // STEP 2
   if (users[chatId].step === 2) {
-    users[chatId].alamatPengirim = text;
+    users[chatId].penerima = text;
     users[chatId].step = 3;
-    return bot.sendMessage(chatId, "Masukkan *Nama Penerima:*", { parse_mode: "Markdown" });
+    return bot.sendMessage(chatId, "Masukkan Berat (kg):");
   }
 
-  // STEP 3
   if (users[chatId].step === 3) {
-    users[chatId].namaPenerima = text;
-    users[chatId].step = 4;
-    return bot.sendMessage(chatId, "Masukkan *Alamat Penerima:*", { parse_mode: "Markdown" });
-  }
 
-  // STEP 4
-  if (users[chatId].step === 4) {
-    users[chatId].alamatPenerima = text;
-    users[chatId].step = 5;
-    return bot.sendMessage(chatId, "Masukkan *Berat Paket (kg):*", { parse_mode: "Markdown" });
-  }
-
-  // STEP 5 (KONFIRMASI)
-  if (users[chatId].step === 5) {
-
-    const berat = parseFloat(text);
-
-    if (isNaN(berat)) {
-      return bot.sendMessage(chatId, "Masukkan angka berat yang valid.");
-    }
+    const berat = parseInt(text);
+    const total = hitungHarga(berat);
 
     users[chatId].berat = berat;
-    users[chatId].step = 6;
+    users[chatId].total = total;
+    users[chatId].step = 4;
 
     return bot.sendMessage(chatId,
-`📦 *KONFIRMASI DATA*
+`📦 *KONFIRMASI*
 
-Nama Pengirim: ${users[chatId].namaPengirim}
-Alamat Pengirim: ${users[chatId].alamatPengirim}
-
-Nama Penerima: ${users[chatId].namaPenerima}
-Alamat Penerima: ${users[chatId].alamatPenerima}
-
+Pengirim: ${users[chatId].nama}
+Penerima: ${users[chatId].penerima}
 Berat: ${berat} kg
 
-Ketik *YA* untuk lanjut.`,
+Total Bayar: Rp${total}
+
+Silakan transfer ke:
+DANA/OVO/BCA XXXXX
+
+Setelah transfer ketik: SUDAH`,
 { parse_mode: "Markdown" });
   }
 
-  // FINAL
-  if (users[chatId].step === 6 && text.toUpperCase() === "YA") {
+  if (users[chatId].step === 4 && text.toUpperCase() === "SUDAH") {
 
-    const resi = "INDO" + Date.now();
+    const idTransaksi = "TRX" + Date.now();
+
+    transaksi.push({
+      id: idTransaksi,
+      user: chatId,
+      data: users[chatId]
+    });
 
     bot.sendMessage(chatId,
-`✅ *TITIP PAKET BERHASIL*
+`⏳ Pembayaran diterima.
+
+Admin sedang memproses.
+ID Transaksi: ${idTransaksi}`);
+
+    // Notifikasi ke admin
+    bot.sendMessage(ADMIN_ID,
+`🔔 TRANSAKSI BARU
+
+ID: ${idTransaksi}
+User: ${chatId}
+Pengirim: ${users[chatId].nama}
+Penerima: ${users[chatId].penerima}
+Berat: ${users[chatId].berat} kg
+Total: Rp${users[chatId].total}
+
+Setelah buat resi, kirim:
+/resi ${idTransaksi} NOMORRESI`);
+
+    users[chatId] = { step: 0 };
+  }
+
+});
+
+// ADMIN KIRIM RESI
+bot.onText(/\/resi (.+) (.+)/, (msg, match) => {
+
+  if (msg.chat.id.toString() !== ADMIN_ID) return;
+
+  const id = match[1];
+  const nomorResi = match[2];
+
+  const trx = transaksi.find(t => t.id === id);
+  if (!trx) return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
+
+  bot.sendMessage(trx.user,
+`✅ *RESI SUDAH DIBUAT*
 
 Nomor Resi:
-${resi}
+${nomorResi}
 
 Terima kasih 🙏`,
 { parse_mode: "Markdown" });
 
-    users[chatId] = { step: 0 };
-  }
-
+  bot.sendMessage(msg.chat.id, "Resi berhasil dikirim ke user.");
 });
