@@ -1,7 +1,7 @@
 {
   "name": "titip-paket-bot",
   "version": "1.0.0",
-  "description": "Bot Titip Paket",
+  "description": "Bot Titip Paket Railway",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -12,6 +12,7 @@
   "dependencies": {
     "dotenv": "^16.4.0",
     "node-telegram-bot-api": "^0.61.0",
-    "puppeteer-core": "^21.7.0"
+    "puppeteer-core": "^21.7.0",
+    "express": "^4.18.2"
   }
 }
