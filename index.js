@@ -5,7 +5,6 @@ const express = require("express");
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 const app = express();
 
-const ADMIN_ID = process.env.ADMIN_ID; // isi dengan ID telegram admin
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
@@ -16,110 +15,73 @@ app.listen(PORT, () => {
   console.log("Server running on port " + PORT);
 });
 
-let users = {};
-let transaksi = [];
-
-function generateResi() {
-  return "INDO" + Date.now();
-}
-
-function hitungHarga(berat) {
-  const hargaPerKg = 10000;
-  const profit = 2000;
-  return (hargaPerKg * berat) + profit;
-}
-
+// MENU UTAMA
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id,
-`Selamat datang di Layanan Titip Paket 🚀
+`🚀 *LAYANAN TITIP PAKET*
 
-Silakan pilih menu`,
+Silakan pilih menu di bawah ini 👇`,
 {
+  parse_mode: "Markdown",
   reply_markup: {
-    keyboard: [["📦 Titip Paket"], ["📊 Cek Transaksi"]],
+    keyboard: [
+      ["📦 Titip Paket"],
+      ["💰 Cek Harga", "📊 Cek Resi"],
+      ["☎️ Customer Service"]
+    ],
     resize_keyboard: true
   }
 });
 });
 
-bot.on("message", async (msg) => {
+// RESPON MENU
+bot.on("message", (msg) => {
 
   const chatId = msg.chat.id;
   const text = msg.text;
 
-  if (!users[chatId]) users[chatId] = { step: 0 };
-
   if (text === "📦 Titip Paket") {
-    users[chatId] = { step: 1 };
-    bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
-  }
-
-  else if (users[chatId].step === 1) {
-    users[chatId].namaPengirim = text;
-    users[chatId].step = 2;
-    bot.sendMessage(chatId, "Masukkan Nama Penerima:");
-  }
-
-  else if (users[chatId].step === 2) {
-    users[chatId].namaPenerima = text;
-    users[chatId].step = 3;
-    bot.sendMessage(chatId, "Masukkan Berat (kg):");
-  }
-
-  else if (users[chatId].step === 3) {
-
-    const berat = parseInt(text);
-    const total = hitungHarga(berat);
-
-    users[chatId].berat = berat;
-    users[chatId].total = total;
-    users[chatId].step = 4;
-
     bot.sendMessage(chatId,
-`📦 KONFIRMASI
+`📦 *TITIP PAKET*
 
-Pengirim: ${users[chatId].namaPengirim}
-Penerima: ${users[chatId].namaPenerima}
-Berat: ${berat} kg
+Silakan kirim data berikut:
 
-Total Bayar: Rp${total}
-
-Ketik YA untuk proses`);
+Nama Pengirim:
+Alamat Pengirim:
+Nama Penerima:
+Alamat Penerima:
+Berat (kg):`,
+{ parse_mode: "Markdown" });
   }
 
-  else if (users[chatId].step === 4 && text.toUpperCase() === "YA") {
-
-    const resi = generateResi();
-
-    transaksi.push({
-      user: chatId,
-      resi: resi,
-      total: users[chatId].total
-    });
-
+  else if (text === "💰 Cek Harga") {
     bot.sendMessage(chatId,
-`✅ BERHASIL
+`💰 *CEK HARGA*
 
-Nomor Resi:
-${resi}
+Contoh harga:
+1kg = Rp12.000
+2kg = Rp20.000
+3kg = Rp28.000
 
-Silakan lakukan pengiriman sesuai prosedur resmi.
-Terima kasih 🙏`);
-
-    if (chatId.toString() !== ADMIN_ID) {
-      bot.sendMessage(ADMIN_ID,
-`🔔 Transaksi Baru
-
-User: ${chatId}
-Resi: ${resi}
-Total: Rp${users[chatId].total}`);
-    }
-
-    users[chatId] = { step: 0 };
+Harga sudah termasuk biaya admin.`,
+{ parse_mode: "Markdown" });
   }
 
-  else if (text === "📊 Cek Transaksi" && chatId.toString() === ADMIN_ID) {
-    bot.sendMessage(chatId, `Total Transaksi: ${transaksi.length}`);
+  else if (text === "📊 Cek Resi") {
+    bot.sendMessage(chatId,
+`📊 *CEK RESI*
+
+Silakan kirim nomor resi Anda.`,
+{ parse_mode: "Markdown" });
+  }
+
+  else if (text === "☎️ Customer Service") {
+    bot.sendMessage(chatId,
+`☎️ *CUSTOMER SERVICE*
+
+Hubungi admin:
+@username_admin`,
+{ parse_mode: "Markdown" });
   }
 
 });
