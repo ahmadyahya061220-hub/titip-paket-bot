@@ -1,12 +1,13 @@
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
+const nodemailer = require('nodemailer');
 
 const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
 const app = express();
 app.get("/", (req, res) => {
-  res.send("Bot Titip Paket Aktif ✅");
+  res.send("Bot Aktif ✅");
 });
 
 const PORT = process.env.PORT || 3000;
@@ -18,7 +19,10 @@ app.listen(PORT, () => {
 process.on('unhandledRejection', console.error);
 process.on('uncaughtException', console.error);
 
-// MENU UTAMA
+let userData = {};
+let emailCodes = {};
+
+// ================= MENU =================
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
@@ -26,21 +30,30 @@ bot.onText(/\/start/, (msg) => {
     reply_markup: {
       keyboard: [
         ["📦 Titip Paket"],
-        ["📄 Cek Resi"]
+        ["✉ Aktivasi Email"]
       ],
       resize_keyboard: true
     }
   });
 });
 
-// MENU TITIP PAKET
-bot.on("message", (msg) => {
+// ================= TITIP PAKET =================
+bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
+  const text = msg.text;
 
-  if (msg.text === "📦 Titip Paket") {
+  if (text === "📦 Titip Paket") {
+    userData[chatId] = {};
+    bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
+  }
 
-    const berat = 1;
-    const harga = 12000;
+  else if (userData[chatId] && !userData[chatId].pengirim) {
+    userData[chatId].pengirim = text;
+    bot.sendMessage(chatId, "Masukkan Nama Penerima:");
+  }
+
+  else if (userData[chatId] && !userData[chatId].penerima) {
+    userData[chatId].penerima = text;
 
     const transaksiId = "TRX" + Date.now();
     const resi = "RESI" + Math.floor(Math.random() * 1000000000);
@@ -48,14 +61,60 @@ bot.on("message", (msg) => {
     bot.sendMessage(chatId,
 `📦 DETAIL PAKET
 
-Berat: ${berat} kg
-Total: Rp${harga}
+Pengirim: ${userData[chatId].pengirim}
+Penerima: ${userData[chatId].penerima}
 
-✅ Pembayaran diterima
-ID Transaksi: ${transaksiId}
+Berat: 1 kg
+Panjang: 10
+Lebar: 10
+Tinggi: 10
 
-🎫 Nomor Resi:
-${resi}`
+Total: Rp 3.500
+
+✅ ID Transaksi: ${transaksiId}
+🎫 Nomor Resi: ${resi}`
     );
+
+    delete userData[chatId];
   }
+
+  // ================= AKTIVASI EMAIL =================
+  else if (text === "✉ Aktivasi Email") {
+    bot.sendMessage(chatId, "Masukkan email Anda:");
+    emailCodes[chatId] = {};
+  }
+
+  else if (emailCodes[chatId] && !emailCodes[chatId].email) {
+    emailCodes[chatId].email = text;
+    const code = Math.floor(100000 + Math.random() * 900000);
+    emailCodes[chatId].code = code;
+
+    // Kirim email
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: text,
+      subject: "Kode Aktivasi",
+      text: "Kode verifikasi Anda: " + code
+    });
+
+    bot.sendMessage(chatId, "Kode aktivasi sudah dikirim. Masukkan kode:");
+  }
+
+  else if (emailCodes[chatId] && emailCodes[chatId].code) {
+    if (text == emailCodes[chatId].code) {
+      bot.sendMessage(chatId, "✅ Email berhasil diaktivasi!");
+      delete emailCodes[chatId];
+    } else {
+      bot.sendMessage(chatId, "❌ Kode salah.");
+    }
+  }
+
 });
