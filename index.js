@@ -63,7 +63,7 @@ bot.onText(/\/start/, (msg) => {
   ];
 
   bot.sendMessage(chatId,
-    `🤖 *BOT TITIP PAKET USAHA*\nPilih menu untuk memulai.`,
+    `📦 *BOT TITIP PAKET*\nPilih menu untuk memulai.`,
     { parse_mode: "Markdown", reply_markup: { keyboard, resize_keyboard: true } }
   );
 });
