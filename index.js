@@ -51,8 +51,8 @@ bot.on("message", (msg) => {
     if (text === "💰 Tarif") {
         bot.sendMessage(chatId,
             "💰 Tarif Titip Paket:\n\n" +
-            "Biaya Admin: Rp2.000 per paket\n" +
-            "Ongkir mengikuti sistem resmi."
+            "Biaya Admin: Rp1.000 per paket\n" +
+            "Biaya Admin Apa Jare AndiiLouw Ya Gess."
         );
         return;
     }
