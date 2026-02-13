@@ -1,4 +1,3 @@
-
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
 const express = require("express");
@@ -160,6 +159,9 @@ bot.on("message", async (msg) => {
           users[chatId] = { step: 0 };
         }
         break;
+      default:
+        // Ignore stiker, foto, voice, dll
+        break;
     }
   } catch (e) {
     console.error("Message handler error:", e.message);
@@ -181,7 +183,7 @@ bot.onText(/\/resi (.+) (.+)/, async (msg, match) => {
   }
 });
 
-// ===== GLOBAL ERROR HANDLER =====
+// ===== GLOBAL ERROR =====
 bot.catch((err) => console.error("Bot error:", err.message));
 process.on("unhandledRejection", (reason) => console.error("Unhandled Rejection:", reason));
 process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err.message));
