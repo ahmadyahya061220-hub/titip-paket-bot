@@ -1,3 +1,5 @@
+console.log("TOKEN:", process.env.BOT_TOKEN);
+
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const nodemailer = require('nodemailer');
