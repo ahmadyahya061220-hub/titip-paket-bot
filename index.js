@@ -87,19 +87,31 @@ bot.on("message", (msg) => {
       user.step = "aktivasi_email";
       return bot.sendMessage(chatId, "Masukkan email Anda:");
     }
+    
+if (user.step === "aktivasi_email") {
+  const email = text;
+  user.email = email;
 
-    if (user.step === "aktivasi_email") {
-      const email = text;
-      user.email = email;
-      user.verified = true;                  // Auto verifikasi
+  // Kirim email percobaan untuk masuk inbox realtime
+  const subject = "Aktivasi Email Bot Titip Paket";
+  const html = `
+    <h3>Email Anda Berhasil Diverifikasi!</h3>
+    <p>Selamat, email <b>${email}</b> sudah terhubung dengan bot Titip Paket.</p>
+    <p>Sekarang Anda bisa menggunakan semua fitur bot termasuk Titip Paket dan nomor resi otomatis.</p>
+  `;
+
+  kirimEmail(email, subject, html, (success) => {
+    if (success) {
+      user.verified = true;                  // Tandai verified
       user.token = crypto.randomBytes(16).toString("hex");
       user.step = 0;
-
-      bot.sendMessage(chatId,
-        `✅ Email ${email} berhasil diverifikasi otomatis!\nSekarang Anda bisa menggunakan menu Titip Paket.`
-      );
-      return;
+      bot.sendMessage(chatId, `✅ Email ${email} berhasil diverifikasi dan email percobaan sudah masuk inbox Anda.`);
+    } else {
+      bot.sendMessage(chatId, `⚠ Email ${email} gagal dikirim. Silakan cek kembali alamat email Anda.`);
     }
+  });
+  return;
+}
 
     // ----- Menu Titip Paket -----
     if (text === "📦 Titip Paket") {
