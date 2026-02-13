@@ -1,60 +1,53 @@
 require("dotenv").config();
 
-/* =========================
-   GLOBAL ERROR HANDLER
-========================= */
-process.on("uncaughtException", (err) => {
-  console.log("UNCAUGHT ERROR:", err.message);
-});
-process.on("unhandledRejection", (err) => {
-  console.log("UNHANDLED PROMISE:", err);
-});
-
 const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
-const Imap = require("node-imap");
-const { simpleParser } = require("mailparser");
 
-/* =========================
-   CONFIG
-========================= */
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 const app = express();
+app.use(express.json());
 
+const PORT = process.env.PORT;
+const TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID?.toString();
-const PORT = process.env.PORT || 3000;
+
+if (!TOKEN) {
+  console.log("BOT_TOKEN tidak ditemukan");
+  process.exit(1);
+}
 
 /* =========================
-   EXPRESS SERVER
+   WEBHOOK SETUP
 ========================= */
-app.get("/", (req, res) => {
-  res.send("Bot Aktif ✅");
-});
 
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+const bot = new TelegramBot(TOKEN);
+
+const url = process.env.RAILWAY_STATIC_URL 
+  ? `https://${process.env.RAILWAY_STATIC_URL}`
+  : process.env.WEBHOOK_URL;
+
+bot.setWebHook(`${url}/bot${TOKEN}`);
+
+app.post(`/bot${TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
 });
 
 /* =========================
-   DATA
+   MENU
 ========================= */
+
 let users = {};
 let transaksi = [];
 
-/* =========================
-   MENU FUNCTION
-========================= */
 function mainMenu(chatId) {
   bot.sendMessage(chatId,
-`🤖 *MENU UTAMA*
+`🤖 MENU UTAMA
 
-Silakan pilih menu:`,
+Pilih menu:`,
 {
-  parse_mode: "Markdown",
   reply_markup: {
     keyboard: [
       ["📦 Titip Paket"],
-      ["📄 Cek Status"],
       ["ℹ️ Bantuan"]
     ],
     resize_keyboard: true
@@ -62,23 +55,14 @@ Silakan pilih menu:`,
 });
 }
 
-/* =========================
-   START
-========================= */
 bot.onText(/\/start/, (msg) => {
   mainMenu(msg.chat.id);
 });
 
-/* =========================
-   HITUNG HARGA
-========================= */
 function hitungHarga(berat) {
   return (10000 * berat) + 2000;
 }
 
-/* =========================
-   HANDLE MESSAGE
-========================= */
 bot.on("message", (msg) => {
 
   const chatId = msg.chat.id;
@@ -90,15 +74,6 @@ bot.on("message", (msg) => {
   if (text === "📦 Titip Paket") {
     users[chatId] = { step: 1 };
     return bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
-  }
-
-  if (text === "📄 Cek Status") {
-    return bot.sendMessage(chatId, "Kirim ID Transaksi Anda.");
-  }
-
-  if (text === "ℹ️ Bantuan") {
-    return bot.sendMessage(chatId,
-"Hubungi admin jika ada kendala.");
   }
 
   if (users[chatId].step === 1) {
@@ -114,9 +89,10 @@ bot.on("message", (msg) => {
   }
 
   if (users[chatId].step === 3) {
+
     const berat = parseInt(text);
     if (isNaN(berat)) {
-      return bot.sendMessage(chatId, "Masukkan angka berat valid.");
+      return bot.sendMessage(chatId, "Masukkan angka yang benar.");
     }
 
     const total = hitungHarga(berat);
@@ -126,15 +102,11 @@ bot.on("message", (msg) => {
     users[chatId].step = 4;
 
     return bot.sendMessage(chatId,
-`📦 *KONFIRMASI*
+`KONFIRMASI
 
-Pengirim: ${users[chatId].nama}
-Penerima: ${users[chatId].penerima}
-Berat: ${berat} kg
 Total: Rp${total}
 
-Ketik SUDAH setelah transfer`,
-{ parse_mode: "Markdown" });
+Ketik SUDAH setelah transfer`);
   }
 
   if (users[chatId].step === 4 && text.toUpperCase() === "SUDAH") {
@@ -148,20 +120,16 @@ Ketik SUDAH setelah transfer`,
     });
 
     bot.sendMessage(chatId,
-`✅ Pembayaran diterima.
-ID Transaksi: ${idTransaksi}`);
+`Pembayaran diterima.
+ID: ${idTransaksi}`);
 
     if (ADMIN_ID) {
       bot.sendMessage(ADMIN_ID,
-`🔔 TRANSAKSI BARU
+`TRANSAKSI BARU
 
 ID: ${idTransaksi}
-Pengirim: ${users[chatId].nama}
-Penerima: ${users[chatId].penerima}
-Berat: ${users[chatId].berat} kg
-Total: Rp${users[chatId].total}
 
-Kirim:
+Gunakan:
 /resi ${idTransaksi} NOMORRESI`);
     }
 
@@ -171,85 +139,30 @@ Kirim:
 
 });
 
-/* =========================
-   ADMIN KIRIM RESI
-========================= */
 bot.onText(/\/resi (.+) (.+)/, (msg, match) => {
 
-  if (!ADMIN_ID) return;
   if (msg.chat.id.toString() !== ADMIN_ID) return;
 
   const id = match[1];
   const nomorResi = match[2];
 
   const trx = transaksi.find(t => t.id === id);
-  if (!trx) {
-    return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
-  }
+  if (!trx) return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
 
   bot.sendMessage(trx.user,
-`📦 *RESI SUDAH DIBUAT*
+`RESI: ${nomorResi}`);
 
-Nomor Resi: ${nomorResi}`,
-{ parse_mode: "Markdown" });
-
-  bot.sendMessage(msg.chat.id, "Resi berhasil dikirim.");
+  bot.sendMessage(msg.chat.id, "Resi terkirim.");
 });
 
 /* =========================
-   EMAIL MONITOR (AMAN)
+   SERVER START
 ========================= */
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
 
-  const imap = new Imap({
-    user: process.env.EMAIL_USER,
-    password: process.env.EMAIL_PASS,
-    host: process.env.EMAIL_HOST,
-    port: process.env.EMAIL_PORT,
-    tls: false
-  });
+app.get("/", (req, res) => {
+  res.send("Bot Railway Aktif ✅");
+});
 
-  imap.once("ready", function () {
-    imap.openBox("INBOX", false, function (err, box) {
-      if (err) return console.log(err);
-
-      imap.on("mail", function () {
-
-        const f = imap.seq.fetch(box.messages.total + ":*", {
-          bodies: ""
-        });
-
-        f.on("message", function (msg) {
-
-          msg.on("body", function (stream) {
-
-            simpleParser(stream, async (err, parsed) => {
-              if (err) return;
-
-              const subject = parsed.subject || "";
-              const body = parsed.text || "";
-
-              const linkMatch = body.match(/https?:\/\/[^\s]+/);
-
-              if (linkMatch && subject.toLowerCase().includes("aktivasi")) {
-
-                bot.sendMessage(ADMIN_ID,
-`📩 EMAIL AKTIVASI TERDETEKSI
-
-Subject: ${subject}
-
-Link:
-${linkMatch[0]}`);
-              }
-
-            });
-          });
-        });
-      });
-    });
-  });
-
-  imap.connect();
-}
-
-console.log("Bot Sistem Lengkap Aktif ✅");
+app.listen(PORT, () => {
+  console.log("Server running on port", PORT);
+});
