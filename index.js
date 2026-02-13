@@ -1,20 +1,35 @@
 require("dotenv").config();
+
+process.on("uncaughtException", (err) => {
+  console.log("UNCAUGHT ERROR:", err.message);
+});
+
+process.on("unhandledRejection", (err) => {
+  console.log("UNHANDLED PROMISE:", err);
+});
+
 const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
-const Imap = require("node-imap");
-const { simpleParser } = require("mailparser");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+if (!process.env.BOT_TOKEN) {
+  console.log("BOT_TOKEN tidak ada di .env");
+  process.exit(1);
+}
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
-const app = express();
 
-const ADMIN_ID = process.env.ADMIN_ID;
-const PORT = process.env.PORT || 3000;
+const ADMIN_ID = process.env.ADMIN_ID
+  ? process.env.ADMIN_ID.toString()
+  : null;
 
 /* =========================
    EXPRESS SERVER
 ========================= */
 app.get("/", (req, res) => {
-  res.send("Bot Titip Paket + Email Monitor Aktif ✅");
+  res.send("Bot Aktif ✅");
 });
 
 app.listen(PORT, () => {
@@ -22,14 +37,11 @@ app.listen(PORT, () => {
 });
 
 /* =========================
-   DATA STORAGE
+   DATA
 ========================= */
 let users = {};
 let transaksi = [];
 
-/* =========================
-   FUNGSI HITUNG HARGA
-========================= */
 function hitungHarga(berat) {
   const hargaPerKg = 10000;
   const profit = 2000;
@@ -37,15 +49,14 @@ function hitungHarga(berat) {
 }
 
 /* =========================
-   MENU START
+   START MENU
 ========================= */
 bot.onText(/\/start/, (msg) => {
   bot.sendMessage(msg.chat.id,
-`🚀 *LAYANAN TITIP PAKET*
+`🚀 LAYANAN TITIP PAKET
 
-Klik 📦 Titip Paket untuk mulai`,
+Klik 📦 Titip Paket`,
 {
-  parse_mode: "Markdown",
   reply_markup: {
     keyboard: [["📦 Titip Paket"]],
     resize_keyboard: true
@@ -54,7 +65,7 @@ Klik 📦 Titip Paket untuk mulai`,
 });
 
 /* =========================
-   HANDLE MESSAGE USER
+   HANDLE USER
 ========================= */
 bot.on("message", (msg) => {
 
@@ -85,7 +96,9 @@ bot.on("message", (msg) => {
   if (users[chatId].step === 3) {
 
     const berat = parseInt(text);
-    if (isNaN(berat)) return bot.sendMessage(chatId, "Masukkan angka berat yang valid.");
+    if (isNaN(berat)) {
+      return bot.sendMessage(chatId, "Masukkan angka yang benar.");
+    }
 
     const total = hitungHarga(berat);
 
@@ -94,19 +107,14 @@ bot.on("message", (msg) => {
     users[chatId].step = 4;
 
     return bot.sendMessage(chatId,
-`📦 *KONFIRMASI*
+`KONFIRMASI
 
 Pengirim: ${users[chatId].nama}
 Penerima: ${users[chatId].penerima}
 Berat: ${berat} kg
+Total: Rp${total}
 
-Total Bayar: Rp${total}
-
-Silakan transfer ke:
-DANA/OVO/BCA XXXXX
-
-Setelah transfer ketik: SUDAH`,
-{ parse_mode: "Markdown" });
+Ketik SUDAH setelah transfer`);
   }
 
   if (users[chatId].step === 4 && text.toUpperCase() === "SUDAH") {
@@ -120,13 +128,12 @@ Setelah transfer ketik: SUDAH`,
     });
 
     bot.sendMessage(chatId,
-`⏳ Pembayaran diterima.
-Admin sedang memproses.
-
+`Pembayaran diterima.
 ID Transaksi: ${idTransaksi}`);
 
-    bot.sendMessage(ADMIN_ID,
-`🔔 TRANSAKSI BARU
+    if (ADMIN_ID) {
+      bot.sendMessage(ADMIN_ID,
+`TRANSAKSI BARU
 
 ID: ${idTransaksi}
 User: ${chatId}
@@ -135,8 +142,9 @@ Penerima: ${users[chatId].penerima}
 Berat: ${users[chatId].berat} kg
 Total: Rp${users[chatId].total}
 
-Setelah buat resi kirim:
+Gunakan:
 /resi ${idTransaksi} NOMORRESI`);
+    }
 
     users[chatId] = { step: 0 };
   }
@@ -148,84 +156,22 @@ Setelah buat resi kirim:
 ========================= */
 bot.onText(/\/resi (.+) (.+)/, (msg, match) => {
 
+  if (!ADMIN_ID) return;
   if (msg.chat.id.toString() !== ADMIN_ID) return;
 
   const id = match[1];
   const nomorResi = match[2];
 
   const trx = transaksi.find(t => t.id === id);
-  if (!trx) return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
+  if (!trx) {
+    return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
+  }
 
   bot.sendMessage(trx.user,
-`✅ *RESI SUDAH DIBUAT*
+`RESI SUDAH DIBUAT
+Nomor Resi: ${nomorResi}`);
 
-Nomor Resi: ${nomorResi}
-
-Terima kasih 🙏`,
-{ parse_mode: "Markdown" });
-
-  bot.sendMessage(msg.chat.id, "Resi berhasil dikirim ke user.");
+  bot.sendMessage(msg.chat.id, "Resi berhasil dikirim.");
 });
 
-/* =========================
-   EMAIL MONITOR (PROTON BRIDGE)
-========================= */
-
-if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-
-const imap = new Imap({
-  user: process.env.EMAIL_USER,
-  password: process.env.EMAIL_PASS,
-  host: "127.0.0.1",
-  port: 1143,
-  tls: false
-});
-
-function openInbox(cb) {
-  imap.openBox("INBOX", false, cb);
-}
-
-imap.once("ready", function () {
-  openInbox(function (err, box) {
-    if (err) throw err;
-
-    imap.on("mail", function () {
-
-      const f = imap.seq.fetch(box.messages.total + ":*", {
-        bodies: ""
-      });
-
-      f.on("message", function (msg) {
-
-        msg.on("body", function (stream) {
-
-          simpleParser(stream, async (err, parsed) => {
-
-            const subject = parsed.subject || "";
-            const body = parsed.text || "";
-
-            const linkMatch = body.match(/https?:\/\/[^\s]+/);
-
-            if (linkMatch && subject.toLowerCase().includes("aktivasi")) {
-
-              const activationLink = linkMatch[0];
-
-              bot.sendMessage(ADMIN_ID,
-`📩 EMAIL AKTIVASI TERDETEKSI
-
-Subject: ${subject}
-
-Link:
-${activationLink}`);
-            }
-
-          });
-        });
-      });
-    });
-  });
-});
-
-imap.connect();
-
-console.log("Bot Full System Aktif ✅");
+console.log("Bot Stabil Aktif ✅");
