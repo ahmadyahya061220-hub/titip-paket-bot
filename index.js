@@ -85,11 +85,12 @@ Total: Rp 3.500
   }
 
   else if (emailCodes[chatId] && !emailCodes[chatId].email) {
-    emailCodes[chatId].email = text;
-    const code = Math.floor(100000 + Math.random() * 900000);
-    emailCodes[chatId].code = code;
+  emailCodes[chatId].email = text;
+  const code = Math.floor(100000 + Math.random() * 900000);
+  emailCodes[chatId].code = code;
 
-    // Kirim email
+  try {
+
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -98,18 +99,18 @@ Total: Rp 3.500
       }
     });
 
-    try {
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to: text,
-    subject: "Kode Aktivasi",
-    text: "Kode verifikasi Anda: " + code
-  });
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: text,
+      subject: "Kode Aktivasi",
+      text: "Kode verifikasi Anda: " + code
+    });
 
-  console.log("Email berhasil dikirim");
-  bot.sendMessage(chatId, "Kode aktivasi sudah dikirim. Masukkan kode:");
+    console.log("Email berhasil dikirim");
+    bot.sendMessage(chatId, "✅ Kode aktivasi sudah dikirim. Masukkan kode:");
 
-} catch (error) {
-  console.error("Error kirim email:", error);
-  bot.sendMessage(chatId, "❌ Gagal mengirim email. Cek server.");
+  } catch (error) {
+    console.error("ERROR EMAIL:", error);
+    bot.sendMessage(chatId, "❌ Gagal kirim email. Cek konfigurasi.");
+  }
 }
