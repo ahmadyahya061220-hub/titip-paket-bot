@@ -1,55 +1,34 @@
+require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 const nodemailer = require("nodemailer");
 
-const token = process.env.BOT_TOKEN;
-if (!token) {
-  console.error("BOT_TOKEN tidak ditemukan!");
-  process.exit(1);
-}
-
-const bot = new TelegramBot(token, { polling: true });
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => res.send("🚀 Titip Paket PRO Online"));
-app.listen(PORT, () => console.log("Server running on port " + PORT));
+app.get("/", (req, res) => {
+  res.send("Bot Titip Paket Aktif 🚀");
+});
 
-process.on("unhandledRejection", console.error);
-process.on("uncaughtException", console.error);
+app.listen(process.env.PORT || 3000);
 
-console.log("Bot siap...");
-
-// ================= DATABASE SEMENTARA =================
+// ================= DATABASE SEDERHANA =================
 let users = {};
-let state = {};
 let emailState = {};
+const OTP_EXPIRE = 5 * 60 * 1000;
 
-const TARIF = 12000;
-
-// ================= MENU PROFESIONAL =================
-function mainMenu(chatId) {
-  bot.sendMessage(chatId,
-`📦 *TITIP PAKET*
-Solusi Kirim Paket Cepat & Aman
-
-Silakan pilih layanan di bawah ini:`,
-    {
-      parse_mode: "Markdown",
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "📦 Titip Paket", callback_data: "titip" },
-            { text: "💰 Cek Tarif", callback_data: "tarif" }
-          ],
-          [
-            { text: "✉ Aktivasi Email", callback_data: "aktivasi" },
-            { text: "👤 Profil Saya", callback_data: "profil" }
-          ]
-        ]
-      }
+// ================= MENU UTAMA =================
+function mainMenu() {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📦 Titip Paket", callback_data: "titip" }],
+        [{ text: "💰 Cek Tarif", callback_data: "tarif" }],
+        [{ text: "✉ Aktivasi Email", callback_data: "aktivasi" }],
+        [{ text: "💳 Cek Saldo", callback_data: "saldo" }]
+      ]
     }
-  );
+  };
 }
 
 // ================= START =================
@@ -59,111 +38,108 @@ bot.onText(/\/start/, (msg) => {
   if (!users[chatId]) {
     users[chatId] = {
       saldo: 50000,
-      verified: true
+      verified: false
     };
   }
 
-  mainMenu(chatId);
+  bot.sendMessage(
+    chatId,
+    `🚀 *Selamat Datang di Bot Titip Paket*
+
+Layanan profesional untuk pengiriman barang Anda.`,
+    { parse_mode: "Markdown", ...mainMenu() }
+  );
 });
 
-// ================= CALLBACK BUTTON =================
+// ================= CALLBACK =================
 bot.on("callback_query", async (query) => {
+
   const chatId = query.message.chat.id;
   const data = query.data;
 
-  if (data === "tarif") {
-    bot.sendMessage(chatId,
-`💰 *INFORMASI TARIF*
-
-Berat: 1 kg
-Dimensi: 10 x 10 x 10 cm
-Harga: Rp${TARIF}`,
-      { parse_mode: "Markdown" }
-    );
+  if (!users[chatId]) {
+    users[chatId] = { saldo: 50000, verified: false };
   }
 
-  if (data === "profil") {
-    const user = users[chatId];
-    bot.sendMessage(chatId,
-`👤 *PROFIL ANDA*
-
-Saldo: Rp${user.saldo}
-Email Verified: ${user.verified ? "✅ Ya" : "❌ Belum"}`,
-      { parse_mode: "Markdown" }
-    );
-  }
-
+  // ===== TITIP PAKET =====
   if (data === "titip") {
-
     if (!users[chatId].verified) {
       return bot.sendMessage(chatId, "❌ Aktivasi email terlebih dahulu.");
     }
 
-    if (users[chatId].saldo < TARIF) {
-      return bot.sendMessage(chatId, "❌ Saldo tidak cukup.");
-    }
+    bot.sendMessage(
+      chatId,
+      `📦 *Titip Paket*
 
-    state[chatId] = { step: "pengirim" };
-    bot.sendMessage(chatId, "Masukkan *Nama Pengirim:*", { parse_mode: "Markdown" });
+Silakan kirim format berikut:
+
+Nama:
+Alamat Tujuan:
+Berat (kg):`,
+      { parse_mode: "Markdown" }
+    );
   }
 
+  // ===== CEK TARIF =====
+  if (data === "tarif") {
+    bot.sendMessage(
+      chatId,
+      `💰 *Daftar Tarif*
+
+1 kg = Rp10.000
+2 kg = Rp18.000
+3 kg = Rp25.000
+> 5 kg diskon khusus`,
+      { parse_mode: "Markdown" }
+    );
+  }
+
+  // ===== SALDO =====
+  if (data === "saldo") {
+    bot.sendMessage(
+      chatId,
+      `💳 Saldo Anda: Rp${users[chatId].saldo}`
+    );
+  }
+
+  // ===== AKTIVASI EMAIL =====
   if (data === "aktivasi") {
-    emailState[chatId] = { step: "email" };
-    bot.sendMessage(chatId, "Masukkan email Anda:");
+    emailState[chatId] = { step: "input_email" };
+    bot.sendMessage(chatId, "📧 Masukkan email Anda:");
   }
 
   bot.answerCallbackQuery(query.id);
 });
 
-// ================= MESSAGE FLOW =================
+// ================= MESSAGE HANDLER =================
 bot.on("message", async (msg) => {
+
   const chatId = msg.chat.id;
   const text = msg.text;
+
   if (!text) return;
 
-  // ===== TITIP FLOW =====
-  if (state[chatId]?.step === "pengirim") {
-    state[chatId].pengirim = text;
-    state[chatId].step = "penerima";
-    return bot.sendMessage(chatId, "Masukkan *Nama Penerima:*", { parse_mode: "Markdown" });
-  }
+  // ===== INPUT EMAIL =====
+  if (emailState[chatId]?.step === "input_email") {
 
-  if (state[chatId]?.step === "penerima") {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    state[chatId].penerima = text;
-    users[chatId].saldo -= TARIF;
-
-    const trx = "TRX" + Date.now();
-    const resi = "RESI" + Math.floor(Math.random() * 999999999);
-
-    await bot.sendMessage(chatId,
-`📦 *DETAIL TRANSAKSI*
-
-Pengirim: ${state[chatId].pengirim}
-Penerima: ${state[chatId].penerima}
-
-Berat: 1 kg
-Dimensi: 10 x 10 x 10
-
-💰 Biaya: Rp${TARIF}
-
-🧾 ID Transaksi: ${trx}
-🎫 Nomor Resi: ${resi}
-
-Saldo Tersisa: Rp${users[chatId].saldo}`,
-      { parse_mode: "Markdown" }
-    );
-
-    delete state[chatId];
-  }
-
-  // ===== EMAIL FLOW =====
-  if (emailState[chatId]?.step === "email") {
+    if (!emailRegex.test(text)) {
+      return bot.sendMessage(chatId, "❌ Format email tidak valid.");
+    }
 
     const code = Math.floor(100000 + Math.random() * 900000);
-    emailState[chatId] = { step: "verify", code };
+    const expireTime = Date.now() + OTP_EXPIRE;
+
+    emailState[chatId] = {
+      step: "verify",
+      email: text,
+      code,
+      expire: expireTime
+    };
 
     try {
+
       const transporter = nodemailer.createTransport({
         service: "gmail",
         auth: {
@@ -175,26 +151,40 @@ Saldo Tersisa: Rp${users[chatId].saldo}`,
       await transporter.sendMail({
         from: process.env.EMAIL_USER,
         to: text,
-        subject: "Kode Aktivasi Titip Paket",
-        text: "Kode verifikasi Anda: " + code
+        subject: "Kode OTP Titip Paket",
+        text: `Kode OTP Anda: ${code}\nBerlaku 5 menit.`
       });
 
-      bot.sendMessage(chatId, "✅ Kode dikirim. Masukkan kode:");
+      bot.sendMessage(chatId, "✅ OTP dikirim. Masukkan kode:");
+
     } catch (err) {
-      console.error(err);
+      console.log(err);
       delete emailState[chatId];
       bot.sendMessage(chatId, "❌ Gagal kirim email.");
     }
+
+    return;
   }
 
+  // ===== VERIFIKASI OTP =====
   if (emailState[chatId]?.step === "verify") {
+
+    if (Date.now() > emailState[chatId].expire) {
+      delete emailState[chatId];
+      return bot.sendMessage(chatId, "⏰ OTP kadaluarsa. Aktivasi ulang.");
+    }
 
     if (text == emailState[chatId].code) {
       users[chatId].verified = true;
       delete emailState[chatId];
-      bot.sendMessage(chatId, "✅ Email berhasil diverifikasi!");
+
+      return bot.sendMessage(
+        chatId,
+        "🎉 Email berhasil diverifikasi!",
+        mainMenu()
+      );
     } else {
-      bot.sendMessage(chatId, "❌ Kode salah.");
+      return bot.sendMessage(chatId, "❌ OTP salah.");
     }
   }
 
