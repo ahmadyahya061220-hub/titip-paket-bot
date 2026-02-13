@@ -17,6 +17,9 @@ if (!BOT_TOKEN || !EMAIL_ADDRESS || !EMAIL_PASSWORD) {
 // ====== INIT BOT ======
 const bot = new Telegraf(BOT_TOKEN);
 
+// ====== GLOBAL SESSION ======
+const sessions = {}; // simpan session per chat untuk input paket
+
 // ====== EMAIL FUNCTION ======
 async function sendEmail(to, subject, text) {
   const transporter = nodemailer.createTransport({
@@ -58,80 +61,51 @@ function generateResi() {
 
 function logPackage(packageData) {
   let riwayat = [];
-  if (fs.existsSync('riwayat.json')) {
-    riwayat = JSON.parse(fs.readFileSync('riwayat.json'));
+  try {
+    if (fs.existsSync('riwayat.json')) {
+      riwayat = JSON.parse(fs.readFileSync('riwayat.json'));
+    }
+    riwayat.push(packageData);
+    fs.writeFileSync('riwayat.json', JSON.stringify(riwayat, null, 2));
+  } catch (e) {
+    console.error("Error saat menyimpan riwayat:", e);
   }
-  riwayat.push(packageData);
-  fs.writeFileSync('riwayat.json', JSON.stringify(riwayat, null, 2));
 }
 
 // ====== MENU BOT ======
-bot.start((ctx) => {
-  ctx.reply("Selamat datang di Bot Titip Paket 🛒", Markup.inlineKeyboard([
-    [Markup.button.callback('📦 Titip Paket', 'titip')],
-    [Markup.button.callback('📄 Riwayat Paket', 'riwayat')],
-    [Markup.button.callback('ℹ️ Info Layanan', 'info')]
-  ]));
-});
-
-bot.action('titip', (ctx) => {
-  ctx.reply("Silakan masukkan data paket dengan format:\nBerat(kg);Panjang(cm);Lebar(cm);Tinggi(cm);Alamat Tujuan");
-  ctx.session = { step: 'input_package' };
-});
-
-bot.action('riwayat', (ctx) => {
-  if (fs.existsSync('riwayat.json')) {
-    const riwayat = JSON.parse(fs.readFileSync('riwayat.json'));
-    let msg = "📄 Riwayat Paket:\n";
-    riwayat.slice(-10).forEach(p => {
-      msg += `Resi: ${p.resi} | ${p.berat}kg | ${p.dims} | ${p.alamat}\n`;
-    });
-    ctx.reply(msg);
-  } else {
-    ctx.reply("Belum ada paket yang dibuat.");
+bot.start(async (ctx) => {
+  try {
+    sessions[ctx.chat.id] = {};
+    await ctx.reply("Selamat datang di Bot Titip Paket 🛒", Markup.inlineKeyboard([
+      [Markup.button.callback('📦 Titip Paket', 'titip')],
+      [Markup.button.callback('📄 Riwayat Paket', 'riwayat')],
+      [Markup.button.callback('ℹ️ Info Layanan', 'info')]
+    ]));
+  } catch (e) {
+    console.error("Error start command:", e);
   }
 });
 
-bot.action('info', (ctx) => {
-  ctx.reply("Layanan titip paket:\n- Berat maksimal 50kg\n- Gratis ongkir di kota tertentu\n- Paket di-tracking realtime");
-});
+bot.action(/.*/, async (ctx) => {
+  try {
+    const action = ctx.callbackQuery.data;
+    sessions[ctx.chat.id] = sessions[ctx.chat.id] || {};
 
-// ====== INPUT PACKAGE ======
-bot.on('text', async (ctx) => {
-  if (!ctx.session || ctx.session.step !== 'input_package') return;
-
-  const text = ctx.message.text;
-  const parts = text.split(';').map(x => x.trim());
-  if (parts.length !== 5) {
-    ctx.reply("Format salah! Gunakan titik koma (;) seperti contoh.");
-    return;
-  }
-
-  const [berat, panjang, lebar, tinggi, alamat] = parts;
-  const dims = `${panjang}x${lebar}x${tinggi}`;
-  const resi = generateResi();
-
-  const packageData = { resi, berat, dims, alamat };
-  logPackage(packageData);
-
-  const subject = `Paket Baru - Resi ${resi}`;
-  const body = `Paket baru telah dibuat:\nResi: ${resi}\nBerat: ${berat}kg\nDimensi: ${dims}\nAlamat: ${alamat}`;
-  const emailSuccess = await sendEmail(EMAIL_ADDRESS, subject, body);
-
-  ctx.reply(`✅ Paket berhasil dibuat!\nNomor Resi: ${resi}\nEmail notifikasi ${emailSuccess ? 'terkirim ✅' : 'gagal ❌'}`);
-
-  ctx.session.step = null;
-});
-
-// ====== ERROR HANDLER ======
-bot.catch((err, ctx) => {
-  console.error(`Terjadi error: ${err}`);
-});
-
-// ====== LAUNCH BOT ======
-bot.launch();
-console.log("Bot Titip Paket berjalan... ✅");
-
-// Enable graceful stop
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+    if (action === 'titip') {
+      await ctx.reply("Silakan masukkan data paket dengan format:\nBerat(kg);Panjang(cm);Lebar(cm);Tinggi(cm);Alamat Tujuan");
+      sessions[ctx.chat.id].step = 'input_package';
+    } else if (action === 'riwayat') {
+      let msg = "Belum ada paket.";
+      try {
+        if (fs.existsSync('riwayat.json')) {
+          const riwayat = JSON.parse(fs.readFileSync('riwayat.json'));
+          msg = "📄 Riwayat Paket:\n";
+          riwayat.slice(-10).forEach(p => {
+            msg += `Resi: ${p.resi} | ${p.berat}kg | ${p.dims} | ${p.alamat}\n`;
+          });
+        }
+      } catch (e) {
+        console.error("Error membaca riwayat:", e);
+      }
+      await ctx.reply(msg);
+    }
