@@ -1,13 +1,15 @@
 {
-  "name": "titip-paket-pro",
-  "version": "4.0.0",
+  "name": "titip-paket-bot",
+  "version": "1.0.0",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "node-telegram-bot-api": "^0.64.0",
+    "dotenv": "^16.4.5",
     "express": "^4.18.2",
+    "node-telegram-bot-api": "^0.61.0",
     "nodemailer": "^6.9.8"
   }
 }
