@@ -62,7 +62,7 @@ async function sendEmail(to, subject, text, retries = 3) {
     } catch (e) {
       console.error(`Email attempt ${attempt} failed:`, e.message);
       if (attempt === retries) return false;
-      await new Promise((res) => setTimeout(res, 3000)); // wait 3s before retry
+      await new Promise((res) => setTimeout(res, 3000));
     }
   }
 }
@@ -73,7 +73,7 @@ bot.start(async (ctx) => {
   users[chatId] = { step: 0 };
   try {
     await ctx.reply(
-      "🚀 *LAYANAN TITIP PAKET*\nPilih menu di bawah untuk memulai:",
+      "🚀 *LAYANAN TITIP PAKET*\nPilih menu di bawah:",
       {
         parse_mode: "Markdown",
         reply_markup: Markup.inlineKeyboard([
@@ -155,7 +155,7 @@ bot.on("message", async (msg) => {
         transaksi.push({ id, user: chatId, data: users[chatId] });
         saveTransaksi();
         await sendEmail(
-          ADMIN_ID + "@telegram.fake", // Email admin opsional, atau bisa gunakan email nyata
+          ADMIN_ID + "@telegram.fake",
           "Transaksi Baru",
           `ID:${id}\nPengirim:${users[chatId].nama}\nPenerima:${users[chatId].penerima}\nBerat:${users[chatId].berat}kg\nTotal:Rp${users[chatId].total}\nEmail:${users[chatId].email}`
         );
@@ -198,4 +198,5 @@ process.on("unhandledRejection", (reason) => console.error("Unhandled Rejection:
 process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err.message));
 
 // ===== LAUNCH =====
-bot.launch().then(() => console.log("Bot Titip Paket Ultra berjalan ✅"));
+bot.launch().then(() => console.log("Bot Titip Paket berjalan ✅"));
+app.listen(PORT, () => console.log(`Server berjalan di port ${PORT}`));
