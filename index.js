@@ -1,87 +1,147 @@
-require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const bodyParser = require('body-parser');
-const nodemailer = require('nodemailer');
-const crypto = require('crypto');
+require("dotenv").config();
+const TelegramBot = require("node-telegram-bot-api");
+const express = require("express");
 
-const app = express();
-app.use(bodyParser.json());
-
-// Database sementara
-let db = {}; // { email: { verified: true/false, token: '...' } }
-
-// Telegram Bot
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+const app = express();
 
-// SMTP setup
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
+const ADMIN_ID = process.env.ADMIN_ID;
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => {
+  res.send("Bot Titip Paket Aktif ✅");
 });
 
-// Bot command start
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
+});
+
+let users = {};
+let transaksi = [];
+
+function hitungHarga(berat) {
+  const hargaPerKg = 10000;
+  const profit = 2000;
+  return (hargaPerKg * berat) + profit;
+}
+
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, 
-    `🤖 Selamat datang di BOT TITIP PAKET\n\nSilakan ketik email Anda untuk aktivasi:`
-  );
-});
+  bot.sendMessage(msg.chat.id,
+`🚀 *LAYANAN TITIP PAKET*
 
-// Terima email dari user
-bot.on('message', (msg) => {
-  const chatId = msg.chat.id;
-  const email = msg.text.trim();
-
-  // Cek apakah sudah command /start
-  if (email.startsWith('/')) return;
-
-  // Generate token
-  const token = crypto.randomBytes(16).toString('hex');
-  db[email] = { verified: false, token, chatId };
-
-  const link = `http://localhost:${process.env.PORT}/verify?email=${email}&token=${token}`;
-
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: 'Aktivasi Email Bot Titip Paket',
-    html: `<h3>Klik link berikut untuk aktivasi:</h3><a href="${link}">Aktivasi Sekarang</a>`
-  };
-
-  transporter.sendMail(mailOptions, (err, info) => {
-    if (err) {
-      bot.sendMessage(chatId, `❌ Gagal mengirim email. Cek email Anda dan coba lagi.`);
-    } else {
-      bot.sendMessage(chatId, `📧 Email aktivasi terkirim ke ${email}. Silakan cek inbox/spam.`);
-    }
-  });
-});
-
-// Express endpoint verifikasi
-app.get('/verify', (req, res) => {
-  const { email, token } = req.query;
-  if (!email || !token) return res.send('Link tidak valid');
-
-  if (db[email] && db[email].token === token) {
-    db[email].verified = true;
-
-    // Kirim pesan ke Telegram user
-    const chatId = db[email].chatId;
-    bot.sendMessage(chatId, `✅ Email ${email} berhasil diverifikasi!\nSekarang Anda bisa menggunakan menu Titip Paket.`);
-
-    res.send('Email berhasil diverifikasi ✅\nBuka Telegram untuk melanjutkan.');
-  } else {
-    res.send('Token salah atau email tidak terdaftar ❌');
+Klik 📦 Titip Paket untuk mulai`,
+{
+  parse_mode: "Markdown",
+  reply_markup: {
+    keyboard: [["📦 Titip Paket"]],
+    resize_keyboard: true
   }
 });
+});
 
-// Menu Titip Paket sederhana
-bot.onText(/titip paket/i, (msg) => {
+bot.on("message", (msg) => {
+
   const chatId = msg.chat.id;
-  // Cek apakah email user sudah diverifikasi
-  const emailUser = Object.keys(db).find(e => db[e].chatId === chatId);
-  if (!emailUser || !db[emailUser].verified) {
-    bot.sendMessage
+  const text = msg.text;
+
+  if (!users[chatId]) users[chatId] = { step: 0 };
+
+  if (text === "📦 Titip Paket") {
+    users[chatId] = { step: 1 };
+    return bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
+  }
+
+  if (users[chatId].step === 1) {
+    users[chatId].nama = text;
+    users[chatId].step = 2;
+    return bot.sendMessage(chatId, "Masukkan Nama Penerima:");
+  }
+
+  if (users[chatId].step === 2) {
+    users[chatId].penerima = text;
+    users[chatId].step = 3;
+    return bot.sendMessage(chatId, "Masukkan Berat (kg):");
+  }
+
+  if (users[chatId].step === 3) {
+
+    const berat = parseInt(text);
+    const total = hitungHarga(berat);
+
+    users[chatId].berat = berat;
+    users[chatId].total = total;
+    users[chatId].step = 4;
+
+    return bot.sendMessage(chatId,
+`📦 *KONFIRMASI*
+
+Pengirim: ${users[chatId].nama}
+Penerima: ${users[chatId].penerima}
+Berat: ${berat} kg
+
+Total Bayar: Rp${total}
+
+Silakan transfer ke:
+DANA/OVO/BCA XXXXX
+
+Setelah transfer ketik: SUDAH`,
+{ parse_mode: "Markdown" });
+  }
+
+  if (users[chatId].step === 4 && text.toUpperCase() === "SUDAH") {
+
+    const idTransaksi = "TRX" + Date.now();
+
+    transaksi.push({
+      id: idTransaksi,
+      user: chatId,
+      data: users[chatId]
+    });
+
+    bot.sendMessage(chatId,
+`⏳ Pembayaran diterima.
+
+Admin sedang memproses.
+ID Transaksi: ${idTransaksi}`);
+
+    // Notifikasi ke admin
+    bot.sendMessage(ADMIN_ID,
+`🔔 TRANSAKSI BARU
+
+ID: ${idTransaksi}
+User: ${chatId}
+Pengirim: ${users[chatId].nama}
+Penerima: ${users[chatId].penerima}
+Berat: ${users[chatId].berat} kg
+Total: Rp${users[chatId].total}
+
+Setelah buat resi, kirim:
+/resi ${idTransaksi} NOMORRESI`);
+
+    users[chatId] = { step: 0 };
+  }
+
+});
+
+// ADMIN KIRIM RESI
+bot.onText(/\/resi (.+) (.+)/, (msg, match) => {
+
+  if (msg.chat.id.toString() !== ADMIN_ID) return;
+
+  const id = match[1];
+  const nomorResi = match[2];
+
+  const trx = transaksi.find(t => t.id === id);
+  if (!trx) return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
+
+  bot.sendMessage(trx.user,
+`✅ *RESI SUDAH DIBUAT*
+
+Nomor Resi:
+${nomorResi}
+
+Terima kasih 🙏`,
+{ parse_mode: "Markdown" });
+
+  bot.sendMessage(msg.chat.id, "Resi berhasil dikirim ke user.");
+});
