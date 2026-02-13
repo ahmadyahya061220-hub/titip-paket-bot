@@ -1,18 +1,18 @@
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
-const nodemailer = require("nodemailer");
 const express = require("express");
+const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
-const VC_CODE = process.env.VC_CODE;
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// Setup email
+// ----- Setup email transporter -----
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -21,17 +21,35 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-function kirimEmail(to, subject, html) {
+// Kirim email dengan callback sukses/gagal
+function kirimEmail(to, subject, html, callback) {
   transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, html }, (err, info) => {
-    if (err) console.error("Gagal kirim email:", err);
+    if (err) {
+      console.error("Gagal kirim email:", err);
+      if (callback) callback(false);
+    } else {
+      console.log("Email terkirim:", info.response);
+      if (callback) callback(true);
+    }
   });
 }
 
-// Data sementara
-let users = {};   // { chatId: { step, nama, email, hp, toko } }
-let transaksi = [];
+// ----- Database sementara -----
+let users = {};      // { chatId: { step, nama, email, hp } }
+let transaksi = [];  // { id, userChatId, data, resi }
 
-// Server express
+// ----- Fungsi bantu -----
+function hitungHarga(berat) {
+  const hargaPerKg = 10000;
+  const profit = 2000;
+  return berat * hargaPerKg + profit;
+}
+
+function generateResi() {
+  return "RESI" + Date.now();
+}
+
+// ----- Express server sederhana -----
 app.get("/", (req, res) => {
   res.send("Bot Titip Paket Aktif ✅");
 });
@@ -43,16 +61,18 @@ bot.onText(/\/start/, (msg) => {
   if (!users[chatId]) users[chatId] = { step: 0 };
 
   const keyboard = [
-    ["📝 Input Data Pengirim"],
-    ["📦 Titip Paket", "ℹ️ Bantuan"]
+    ["📧 Aktivasi Email"],
+    ["📦 Titip Paket", "ℹ️ Bantuan"],
+    ["📊 Status Pesanan"]
   ];
 
   bot.sendMessage(chatId,
-    `🤖 Bot Titip Paket Usaha\nPilih menu untuk memulai`,
+    `🤖 *BOT TITIP PAKET USAHA*\nPilih menu untuk memulai.`,
     { parse_mode: "Markdown", reply_markup: { keyboard, resize_keyboard: true } }
   );
 });
 
+// Handler utama
 bot.on("message", (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text?.trim();
@@ -61,83 +81,84 @@ bot.on("message", (msg) => {
   if (!users[chatId]) users[chatId] = { step: 0 };
   const user = users[chatId];
 
-  // Input Data Pengirim
-  if (text === "📝 Input Data Pengirim") {
-    user.step = "nama";
-    return bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
-  }
-
-  if (user.step === "nama") {
-    user.nama = text;
-    user.step = "email";
-    return bot.sendMessage(chatId, "Masukkan Email Pengirim:");
-  }
-
-  if (user.step === "email") {
-    user.email = text;
-    user.step = "hp";
-    return bot.sendMessage(chatId, "Masukkan Nomor HP Pengirim:");
-  }
-
-  if (user.step === "hp") {
-    user.hp = text;
-    user.step = "toko";
-    return bot.sendMessage(chatId, "Masukkan Kode Toko Indomaret:");
-  }
-
-  if (user.step === "toko") {
-    user.toko = text;
-    user.step = 0;
-
-    // Kirim konfirmasi ke Telegram dan Email
-    const msgKonfirmasi = 
-`✅ Data Pengirim & Penerima
-Nama: ${user.nama}
-Email: ${user.email}
-HP: ${user.hp}
-Toko: ${user.toko}
-
-Data Penerima otomatis sama dengan pengirim.`;
-
-    bot.sendMessage(chatId, msgKonfirmasi);
-
-    const emailHtml = `<h3>Data Pengirim & Penerima</h3>
-<p>Nama: ${user.nama}</p>
-<p>Email: ${user.email}</p>
-<p>HP: ${user.hp}</p>
-<p>Toko: ${user.toko}</p>
-<p>Data penerima otomatis sama dengan pengirim.</p>`;
-
-    kirimEmail(user.email, "Data Titip Paket Anda", emailHtml);
-    return;
-  }
-
-  // Titip Paket
-  if (text === "📦 Titip Paket") {
-    if (!user.nama || !user.email || !user.hp || !user.toko) {
-      return bot.sendMessage(chatId, "❌ Silakan input data pengirim dulu lewat 📝 Input Data Pengirim.");
+  try {
+    // ----- Menu Aktivasi Email otomatis -----
+    if (text === "📧 Aktivasi Email") {
+      user.step = "aktivasi_email";
+      return bot.sendMessage(chatId, "Masukkan email Anda:");
     }
 
-    // Data paket otomatis
-    const paket = {
-      kategori: "Lain-lain",
-      deskripsi: "Lain",
-      hargaBarang: 10000,
-      berat: 1,
-      panjang: 10,
-      lebar: 10,
-      tinggi: 10,
-      vc: VC_CODE
-    };
+    if (user.step === "aktivasi_email") {
+      const email = text;
+      user.email = email;
+      user.verified = true;                  // Auto verifikasi
+      user.token = crypto.randomBytes(16).toString("hex");
+      user.step = 0;
 
-    const idTransaksi = "TRX" + Date.now();
-    transaksi.push({ id: idTransaksi, chatId, user, paket });
+      bot.sendMessage(chatId,
+        `✅ Email ${email} berhasil diverifikasi otomatis!\nSekarang Anda bisa menggunakan menu Titip Paket.`
+      );
+      return;
+    }
 
-    // Kirim info ke Telegram
-    const msgPaket = 
+    // ----- Menu Titip Paket -----
+    if (text === "📦 Titip Paket") {
+      if (!user.email || !user.verified) {
+        return bot.sendMessage(chatId, "❌ Email belum terverifikasi. Silakan aktivasi email dulu.");
+      }
+      user.step = 1;
+      return bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
+    }
+
+    // Step 1: Nama Pengirim
+    if (user.step === 1) {
+      user.nama = text;
+      user.step = 2;
+      return bot.sendMessage(chatId, "Masukkan Nomor HP Pengirim:");
+    }
+
+    // Step 2: Nomor HP
+    if (user.step === 2) {
+      user.hp = text;
+      user.step = 3;
+      return bot.sendMessage(chatId, "Masukkan Kode Toko (Indomaret):");
+    }
+
+    // Step 3: Kode Toko
+    if (user.step === 3) {
+      user.toko = text;
+      user.step = 4;
+      return bot.sendMessage(chatId, "Masukkan Berat Paket (kg, default 1kg jika kosong):");
+    }
+
+    // Step 4: Berat Paket
+    if (user.step === 4) {
+      let berat = parseInt(text);
+      if (isNaN(berat) || berat <= 0) berat = 1; // default 1kg
+      const total = hitungHarga(berat);
+      const resi = generateResi();
+
+      // Data paket otomatis
+      const paket = {
+        kategori: "Lain-lain",
+        deskripsi: "Lain",
+        hargaBarang: 10000,
+        berat: berat,
+        panjang: 10,
+        lebar: 10,
+        tinggi: 10,
+        resi,
+        vc: "FREEONGKIR123"
+      };
+
+      transaksi.push({ id: resi, userChatId: chatId, user, paket });
+
+      // Kirim ke Telegram
+      bot.sendMessage(chatId,
 `📦 Paket Berhasil Dibuat
-ID Transaksi: ${idTransaksi}
+ID Transaksi: ${resi}
 Nama Pengirim/Penerima: ${user.nama}
+HP: ${user.hp}
 Toko: ${user.toko}
 Kategori: ${paket.kategori}
 Deskripsi: ${paket.deskripsi}
@@ -145,19 +166,27 @@ Harga Barang: Rp${paket.hargaBarang}
 Berat: ${paket.berat} kg
 Dimensi: ${paket.panjang}x${paket.lebar}x${paket.tinggi} cm
 Voucher Gratis Ongkir: ${paket.vc}
+Nomor Resi: ${paket.resi}
 
-Terima kasih 🙏`;
+Terima kasih 🙏`
+      );
 
-    bot.sendMessage(chatId, msgPaket);
+      // Kirim notifikasi ke admin
+      bot.sendMessage(ADMIN_ID,
+`🔔 TRANSAKSI BARU
+ID: ${resi}
+User: ${user.nama}
+HP: ${user.hp}
+Toko: ${user.toko}
+Voucher: ${paket.vc}`
+      );
 
-    // Kirim notifikasi ke admin
-    bot.sendMessage(ADMIN_ID, `🔔 TRANSAKSI BARU\nID: ${idTransaksi}\nUser: ${user.nama}\nToko: ${user.toko}\nVoucher: ${paket.vc}`);
-
-    // Kirim email ke user
-    const emailHtml = `
+      // Kirim email ke user dengan callback
+      const emailHtml = `
 <h3>Paket Anda Berhasil Dibuat</h3>
-<p>ID Transaksi: ${idTransaksi}</p>
+<p>ID Transaksi: ${resi}</p>
 <p>Nama Pengirim/Penerima: ${user.nama}</p>
+<p>HP: ${user.hp}</p>
 <p>Toko: ${user.toko}</p>
 <p>Kategori: ${paket.kategori}</p>
 <p>Deskripsi: ${paket.deskripsi}</p>
@@ -165,22 +194,50 @@ Terima kasih 🙏`;
 <p>Berat: ${paket.berat} kg</p>
 <p>Dimensi: ${paket.panjang}x${paket.lebar}x${paket.tinggi} cm</p>
 <p>Voucher Gratis Ongkir: ${paket.vc}</p>
+<p>Nomor Resi: <b>${paket.resi}</b></p>
 <p>Terima kasih telah menggunakan layanan Titip Paket.</p>`;
 
-    kirimEmail(user.email, "Konfirmasi Paket Anda", emailHtml);
-    return;
-  }
+      kirimEmail(user.email, "Konfirmasi Paket Anda", emailHtml, (success) => {
+        if (success) {
+          bot.sendMessage(chatId, "✅ Email konfirmasi berhasil dikirim ke inbox Anda.");
+        } else {
+          bot.sendMessage(chatId, "⚠ Email gagal dikirim. Silakan cek alamat email Anda.");
+        }
+      });
 
-  // Bantuan
-  if (text === "ℹ️ Bantuan") {
-    return bot.sendMessage(chatId,
+      user.step = 0;
+      return;
+    }
+
+    // ----- Status Pesanan -----
+    if (text === "📊 Status Pesanan") {
+      const userTrx = transaksi.filter(t => t.userChatId === chatId);
+      if (!userTrx.length) return bot.sendMessage(chatId, "Belum ada transaksi.");
+
+      let msg = "📊 *Daftar Transaksi Anda*\n\n";
+      userTrx.forEach(t => {
+        msg += `ID: ${t.id}\nNama: ${t.user.nama}\nHP: ${t.user.hp}\nToko: ${t.user.toko}\nBerat: ${t.paket.berat} kg\nResi: ${t.paket.resi}\nVoucher: ${t.paket.vc}\n\n`;
+      });
+
+      return bot.sendMessage(chatId, msg, { parse_mode: "Markdown" });
+    }
+
+    // ----- Bantuan -----
+    if (text === "ℹ️ Bantuan") {
+      return bot.sendMessage(chatId,
 `*Cara pakai:*
-1. Input data pengirim lewat 📝 Input Data Pengirim.
-2. Data penerima otomatis sama dengan pengirim.
-3. Pilih toko Indomaret.
-4. Pilih 📦 Titip Paket untuk buat paket otomatis.
-5. Bot akan kirim info paket + voucher gratis ongkir ke Telegram & Email.`,
-      { parse_mode: "Markdown" }
-    );
+1. Aktivasi email lewat 📧 Aktivasi Email.
+2. Pilih 📦 Titip Paket.
+3. Masukkan Nama, HP, Kode Toko.
+4. Masukkan Berat Paket (default 1kg).
+5. Bot akan auto generate resi + voucher gratis ongkir.
+6. Email konfirmasi akan dikirim dan bot beri notifikasi berhasil/gagal.`,
+        { parse_mode: "Markdown" }
+      );
+    }
+
+  } catch (err) {
+    console.error("Error:", err);
+    bot.sendMessage(chatId, "⚠ Terjadi kesalahan. Silakan coba lagi.");
   }
 });
