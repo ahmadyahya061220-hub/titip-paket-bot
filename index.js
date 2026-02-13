@@ -1,52 +1,58 @@
-const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const nodemailer = require('nodemailer');
+const TelegramBot = require("node-telegram-bot-api");
+const express = require("express");
+const nodemailer = require("nodemailer");
 
 const token = process.env.BOT_TOKEN;
-
 if (!token) {
   console.error("BOT_TOKEN tidak ditemukan!");
   process.exit(1);
 }
 
 const bot = new TelegramBot(token, { polling: true });
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => {
-  res.send("Bot Usaha Titip Paket Online ✅");
-});
-
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
-});
+app.get("/", (req, res) => res.send("🚀 Titip Paket PRO Online"));
+app.listen(PORT, () => console.log("Server running on port " + PORT));
 
 process.on("unhandledRejection", console.error);
 process.on("uncaughtException", console.error);
 
-console.log("Bot siap menerima pesan...");
+console.log("Bot siap...");
 
 // ================= DATABASE SEMENTARA =================
 let users = {};
 let state = {};
-let emailData = {};
+let emailState = {};
 
-const TARIF_PER_KG = 12000;
+const TARIF = 12000;
 
-// ================= MENU =================
+// ================= MENU PROFESIONAL =================
 function mainMenu(chatId) {
-  bot.sendMessage(chatId, "📦 MENU USAHA TITIP PAKET", {
-    reply_markup: {
-      keyboard: [
-        ["📦 Titip Paket", "💰 Cek Tarif"],
-        ["✉ Aktivasi Email", "👤 Profil"]
-      ],
-      resize_keyboard: true
+  bot.sendMessage(chatId,
+`🚚 *TITIP PAKET EXPRESS*
+Solusi Kirim Paket Cepat & Aman
+
+Silakan pilih layanan di bawah ini:`,
+    {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "📦 Titip Paket", callback_data: "titip" },
+            { text: "💰 Cek Tarif", callback_data: "tarif" }
+          ],
+          [
+            { text: "✉ Aktivasi Email", callback_data: "aktivasi" },
+            { text: "👤 Profil Saya", callback_data: "profil" }
+          ]
+        ]
+      }
     }
-  });
+  );
 }
 
+// ================= START =================
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
 
@@ -60,68 +66,78 @@ bot.onText(/\/start/, (msg) => {
   mainMenu(chatId);
 });
 
-// ================= MESSAGE HANDLER =================
-bot.on("message", async (msg) => {
+// ================= CALLBACK BUTTON =================
+bot.on("callback_query", async (query) => {
+  const chatId = query.message.chat.id;
+  const data = query.data;
 
-  const chatId = msg.chat.id;
-  const text = msg.text;
-  if (!text) return;
-
-  console.log("Pesan:", text);
-
-  // ================= CEK TARIF =================
-  if (text === "💰 Cek Tarif") {
-    return bot.sendMessage(chatId,
-`📦 Tarif Pengiriman
+  if (data === "tarif") {
+    bot.sendMessage(chatId,
+`💰 *INFORMASI TARIF*
 
 Berat: 1 kg
 Dimensi: 10 x 10 x 10 cm
-Harga: Rp${TARIF_PER_KG}`
+Harga: Rp${TARIF}`,
+      { parse_mode: "Markdown" }
     );
   }
 
-  // ================= PROFIL =================
-  if (text === "👤 Profil") {
+  if (data === "profil") {
     const user = users[chatId];
-    return bot.sendMessage(chatId,
-`👤 PROFIL ANDA
+    bot.sendMessage(chatId,
+`👤 *PROFIL ANDA*
 
 Saldo: Rp${user.saldo}
-Email Verified: ${user.verified ? "✅ Ya" : "❌ Belum"}`
+Email Verified: ${user.verified ? "✅ Ya" : "❌ Belum"}`,
+      { parse_mode: "Markdown" }
     );
   }
 
-  // ================= TITIP PAKET =================
-  if (text === "📦 Titip Paket") {
+  if (data === "titip") {
 
     if (!users[chatId].verified) {
       return bot.sendMessage(chatId, "❌ Aktivasi email terlebih dahulu.");
     }
 
-    if (users[chatId].saldo < TARIF_PER_KG) {
+    if (users[chatId].saldo < TARIF) {
       return bot.sendMessage(chatId, "❌ Saldo tidak cukup.");
     }
 
     state[chatId] = { step: "pengirim" };
-    return bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
+    bot.sendMessage(chatId, "Masukkan *Nama Pengirim:*", { parse_mode: "Markdown" });
   }
 
+  if (data === "aktivasi") {
+    emailState[chatId] = { step: "email" };
+    bot.sendMessage(chatId, "Masukkan email Anda:");
+  }
+
+  bot.answerCallbackQuery(query.id);
+});
+
+// ================= MESSAGE FLOW =================
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
+  if (!text) return;
+
+  // ===== TITIP FLOW =====
   if (state[chatId]?.step === "pengirim") {
     state[chatId].pengirim = text;
     state[chatId].step = "penerima";
-    return bot.sendMessage(chatId, "Masukkan Nama Penerima:");
+    return bot.sendMessage(chatId, "Masukkan *Nama Penerima:*", { parse_mode: "Markdown" });
   }
 
   if (state[chatId]?.step === "penerima") {
+
     state[chatId].penerima = text;
+    users[chatId].saldo -= TARIF;
 
-    users[chatId].saldo -= TARIF_PER_KG;
-
-    const transaksiId = "TRX" + Date.now();
-    const resi = "RESI" + Math.floor(Math.random() * 1000000000);
+    const trx = "TRX" + Date.now();
+    const resi = "RESI" + Math.floor(Math.random() * 999999999);
 
     await bot.sendMessage(chatId,
-`📦 DETAIL PAKET
+`📦 *DETAIL TRANSAKSI*
 
 Pengirim: ${state[chatId].pengirim}
 Penerima: ${state[chatId].penerima}
@@ -129,37 +145,25 @@ Penerima: ${state[chatId].penerima}
 Berat: 1 kg
 Dimensi: 10 x 10 x 10
 
-💰 Biaya: Rp${TARIF_PER_KG}
+💰 Biaya: Rp${TARIF}
 
-✅ ID Transaksi: ${transaksiId}
+🧾 ID Transaksi: ${trx}
 🎫 Nomor Resi: ${resi}
 
-Saldo Tersisa: Rp${users[chatId].saldo}`
+Saldo Tersisa: Rp${users[chatId].saldo}`,
+      { parse_mode: "Markdown" }
     );
 
     delete state[chatId];
-    return;
   }
 
-  // ================= AKTIVASI EMAIL =================
-  if (text === "✉ Aktivasi Email") {
-    emailData[chatId] = { step: "input_email" };
-    return bot.sendMessage(chatId, "Masukkan email Anda:");
-  }
+  // ===== EMAIL FLOW =====
+  if (emailState[chatId]?.step === "email") {
 
-  if (emailData[chatId]?.step === "input_email") {
-
-    const email = text;
     const code = Math.floor(100000 + Math.random() * 900000);
-
-    emailData[chatId] = {
-      step: "verifikasi",
-      email,
-      code
-    };
+    emailState[chatId] = { step: "verify", code };
 
     try {
-
       const transporter = nodemailer.createTransport({
         service: "gmail",
         auth: {
@@ -170,28 +174,27 @@ Saldo Tersisa: Rp${users[chatId].saldo}`
 
       await transporter.sendMail({
         from: process.env.EMAIL_USER,
-        to: email,
+        to: text,
         subject: "Kode Aktivasi Titip Paket",
         text: "Kode verifikasi Anda: " + code
       });
 
-      return bot.sendMessage(chatId, "✅ Kode dikirim. Masukkan kode:");
-
+      bot.sendMessage(chatId, "✅ Kode dikirim. Masukkan kode:");
     } catch (err) {
-      console.error("EMAIL ERROR:", err);
-      delete emailData[chatId];
-      return bot.sendMessage(chatId, "❌ Gagal kirim email. Cek konfigurasi.");
+      console.error(err);
+      delete emailState[chatId];
+      bot.sendMessage(chatId, "❌ Gagal kirim email.");
     }
   }
 
-  if (emailData[chatId]?.step === "verifikasi") {
+  if (emailState[chatId]?.step === "verify") {
 
-    if (text == emailData[chatId].code) {
+    if (text == emailState[chatId].code) {
       users[chatId].verified = true;
-      delete emailData[chatId];
-      return bot.sendMessage(chatId, "✅ Email berhasil diverifikasi!");
+      delete emailState[chatId];
+      bot.sendMessage(chatId, "✅ Email berhasil diverifikasi!");
     } else {
-      return bot.sendMessage(chatId, "❌ Kode salah.");
+      bot.sendMessage(chatId, "❌ Kode salah.");
     }
   }
 
