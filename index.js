@@ -2,6 +2,7 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
 const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,15 +12,35 @@ const ADMIN_ID = process.env.ADMIN_ID;
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// Database sementara
+// ----- Setup email transporter -----
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+function kirimEmail(to, subject, html) {
+  const mailOptions = { from: process.env.EMAIL_USER, to, subject, html };
+  transporter.sendMail(mailOptions, (err, info) => {
+    if (err) console.error("Gagal kirim email:", err);
+  });
+}
+
+// ----- Database sementara -----
 let users = {};      // { chatId: { step, nama, penerima, berat, total, email, verified } }
 let transaksi = [];  // { id, userChatId, data }
 
-// Fungsi menghitung harga
+// ----- Fungsi bantu -----
 function hitungHarga(berat) {
   const hargaPerKg = 10000;
   const profit = 2000;
   return berat * hargaPerKg + profit;
+}
+
+function generateResi() {
+  return "RESI" + Date.now();
 }
 
 // ----- Express server sederhana -----
@@ -125,12 +146,17 @@ Setelah transfer ketik: SUDAH`,
   // Step 4: Konfirmasi transfer
   if (user.step === 4 && text.toUpperCase() === "SUDAH") {
     const idTransaksi = "TRX" + Date.now();
-    transaksi.push({ id: idTransaksi, userChatId: chatId, data: { ...user } });
+    const nomorResi = generateResi(); // otomatis
 
+    transaksi.push({ id: idTransaksi, userChatId: chatId, data: { ...user, resi: nomorResi } });
+
+    // Kirim pesan ke user di Telegram
     bot.sendMessage(chatId,
 `⏳ Pembayaran diterima.
-Admin sedang memproses.
-ID Transaksi: ${idTransaksi}`
+ID Transaksi: ${idTransaksi}
+Nomor Resi: ${nomorResi}
+
+Terima kasih 🙏`
     );
 
     // Notifikasi ke admin
@@ -143,10 +169,23 @@ Pengirim: ${user.nama}
 Penerima: ${user.penerima}
 Berat: ${user.berat} kg
 Total: Rp${user.total}
-
-Setelah buat resi, kirim:
-/resi ${idTransaksi} NOMORRESI`
+Resi: ${nomorResi}`
     );
+
+    // Kirim email notifikasi ke user
+    if (user.email) {
+      const subject = `Konfirmasi Titip Paket - ID ${idTransaksi}`;
+      const html = `
+        <h3>Transaksi Anda Berhasil</h3>
+        <p>Pengirim: ${user.nama}</p>
+        <p>Penerima: ${user.penerima}</p>
+        <p>Berat: ${user.berat} kg</p>
+        <p>Total Bayar: Rp${user.total}</p>
+        <p>Nomor Resi: <b>${nomorResi}</b></p>
+        <p>Terima kasih telah menggunakan layanan Titip Paket.</p>
+      `;
+      kirimEmail(user.email, subject, html);
+    }
 
     user.step = 0;
     return;
@@ -163,7 +202,7 @@ Setelah buat resi, kirim:
 
     let msg = "📊 *Daftar Transaksi Anda*\n\n";
     userTrx.forEach(t => {
-      msg += `ID: ${t.id}\nPengirim: ${t.data.nama}\nPenerima: ${t.data.penerima}\nBerat: ${t.data.berat} kg\nTotal: Rp${t.data.total}\n\n`;
+      msg += `ID: ${t.id}\nPengirim: ${t.data.nama}\nPenerima: ${t.data.penerima}\nBerat: ${t.data.berat} kg\nTotal: Rp${t.data.total}\nNomor Resi: ${t.data.resi}\n\n`;
     });
 
     return bot.sendMessage(chatId, msg, { parse_mode: "Markdown" });
@@ -177,7 +216,7 @@ Setelah buat resi, kirim:
 2. Pilih 📦 Titip Paket.
 3. Ikuti instruksi: Nama Pengirim, Nama Penerima, Berat.
 4. Transfer sesuai total, lalu ketik SUDAH.
-5. Tunggu admin kirim resi.
+5. Bot otomatis generate nomor resi dan kirim via Telegram & email.
 6. Cek status lewat 📊 Status Pesanan.`,
       { parse_mode: "Markdown" }
     );
@@ -190,25 +229,4 @@ Setelah buat resi, kirim:
     ["📊 Status Pesanan"]
   ];
   bot.sendMessage(chatId, "Pilih menu:", { reply_markup: { keyboard, resize_keyboard: true } });
-});
-
-// ----- Admin kirim resi -----
-bot.onText(/\/resi (.+) (.+)/, (msg, match) => {
-  const chatId = msg.chat.id.toString();
-  if (chatId !== ADMIN_ID) return;
-
-  const id = match[1];
-  const nomorResi = match[2];
-
-  const trx = transaksi.find(t => t.id === id);
-  if (!trx) return bot.sendMessage(chatId, "ID tidak ditemukan.");
-
-  bot.sendMessage(trx.userChatId,
-`✅ *RESI SUDAH DIBUAT*
-Nomor Resi: ${nomorResi}
-Terima kasih 🙏`,
-    { parse_mode: "Markdown" }
-  );
-
-  bot.sendMessage(chatId, "Resi berhasil dikirim ke user.");
 });
