@@ -48,7 +48,7 @@ bot.on("message", (msg) => {
 
     if (text === "💰 Tarif") {
         bot.sendMessage(chatId,
-            "💰 Tarif:\nBiaya Garap Rp1.000/paket\nAdmin mengikuti AndiiLouw Ya Gess."
+            "💰 Tarif:\nBiaya Garap Rp1.000/paket\nBiaya Tergantung AndiiLouw Ya Gess."
         );
         return;
     }
