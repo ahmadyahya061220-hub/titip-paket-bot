@@ -1,168 +1,61 @@
-require("dotenv").config();
+const TelegramBot = require('node-telegram-bot-api');
+const express = require('express');
 
-const TelegramBot = require("node-telegram-bot-api");
-const express = require("express");
+const token = process.env.BOT_TOKEN;
+const bot = new TelegramBot(token, { polling: true });
 
 const app = express();
-app.use(express.json());
-
-const PORT = process.env.PORT;
-const TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = process.env.ADMIN_ID?.toString();
-
-if (!TOKEN) {
-  console.log("BOT_TOKEN tidak ditemukan");
-  process.exit(1);
-}
-
-/* =========================
-   WEBHOOK SETUP
-========================= */
-
-const bot = new TelegramBot(TOKEN);
-
-const url = process.env.RAILWAY_STATIC_URL 
-  ? `https://${process.env.RAILWAY_STATIC_URL}`
-  : process.env.WEBHOOK_URL;
-
-bot.setWebHook(`${url}/bot${TOKEN}`);
-
-app.post(`/bot${TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
+app.get("/", (req, res) => {
+  res.send("Bot Titip Paket Aktif ✅");
 });
 
-/* =========================
-   MENU
-========================= */
-
-let users = {};
-let transaksi = [];
-
-function mainMenu(chatId) {
-  bot.sendMessage(chatId,
-`🤖 MENU UTAMA
-
-Pilih menu:`,
-{
-  reply_markup: {
-    keyboard: [
-      ["📦 Titip Paket"],
-      ["ℹ️ Bantuan"]
-    ],
-    resize_keyboard: true
-  }
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Server running on port " + PORT);
 });
-}
 
+// Anti crash
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
+
+// MENU UTAMA
 bot.onText(/\/start/, (msg) => {
-  mainMenu(msg.chat.id);
+  const chatId = msg.chat.id;
+
+  bot.sendMessage(chatId, "Selamat datang di Bot Titip Paket 📦", {
+    reply_markup: {
+      keyboard: [
+        ["📦 Titip Paket"],
+        ["📄 Cek Resi"]
+      ],
+      resize_keyboard: true
+    }
+  });
 });
 
-function hitungHarga(berat) {
-  return (10000 * berat) + 2000;
-}
-
+// MENU TITIP PAKET
 bot.on("message", (msg) => {
-
   const chatId = msg.chat.id;
-  const text = msg.text;
-  if (!text) return;
 
-  if (!users[chatId]) users[chatId] = { step: 0 };
+  if (msg.text === "📦 Titip Paket") {
 
-  if (text === "📦 Titip Paket") {
-    users[chatId] = { step: 1 };
-    return bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
-  }
+    const berat = 1;
+    const harga = 12000;
 
-  if (users[chatId].step === 1) {
-    users[chatId].nama = text;
-    users[chatId].step = 2;
-    return bot.sendMessage(chatId, "Masukkan Nama Penerima:");
-  }
-
-  if (users[chatId].step === 2) {
-    users[chatId].penerima = text;
-    users[chatId].step = 3;
-    return bot.sendMessage(chatId, "Masukkan Berat (kg):");
-  }
-
-  if (users[chatId].step === 3) {
-
-    const berat = parseInt(text);
-    if (isNaN(berat)) {
-      return bot.sendMessage(chatId, "Masukkan angka yang benar.");
-    }
-
-    const total = hitungHarga(berat);
-
-    users[chatId].berat = berat;
-    users[chatId].total = total;
-    users[chatId].step = 4;
-
-    return bot.sendMessage(chatId,
-`KONFIRMASI
-
-Total: Rp${total}
-
-Ketik SUDAH setelah transfer`);
-  }
-
-  if (users[chatId].step === 4 && text.toUpperCase() === "SUDAH") {
-
-    const idTransaksi = "TRX" + Date.now();
-
-    transaksi.push({
-      id: idTransaksi,
-      user: chatId,
-      data: users[chatId]
-    });
+    const transaksiId = "TRX" + Date.now();
+    const resi = "RESI" + Math.floor(Math.random() * 1000000000);
 
     bot.sendMessage(chatId,
-`Pembayaran diterima.
-ID: ${idTransaksi}`);
+`📦 DETAIL PAKET
 
-    if (ADMIN_ID) {
-      bot.sendMessage(ADMIN_ID,
-`TRANSAKSI BARU
+Berat: ${berat} kg
+Total: Rp${harga}
 
-ID: ${idTransaksi}
+✅ Pembayaran diterima
+ID Transaksi: ${transaksiId}
 
-Gunakan:
-/resi ${idTransaksi} NOMORRESI`);
-    }
-
-    users[chatId] = { step: 0 };
-    mainMenu(chatId);
+🎫 Nomor Resi:
+${resi}`
+    );
   }
-
-});
-
-bot.onText(/\/resi (.+) (.+)/, (msg, match) => {
-
-  if (msg.chat.id.toString() !== ADMIN_ID) return;
-
-  const id = match[1];
-  const nomorResi = match[2];
-
-  const trx = transaksi.find(t => t.id === id);
-  if (!trx) return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
-
-  bot.sendMessage(trx.user,
-`RESI: ${nomorResi}`);
-
-  bot.sendMessage(msg.chat.id, "Resi terkirim.");
-});
-
-/* =========================
-   SERVER START
-========================= */
-
-app.get("/", (req, res) => {
-  res.send("Bot Railway Aktif ✅");
-});
-
-app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
 });
