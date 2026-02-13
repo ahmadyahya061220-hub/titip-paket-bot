@@ -1,191 +1,137 @@
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
-const express = require("express");
 const nodemailer = require("nodemailer");
+const express = require("express");
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 const app = express();
+app.get("/", (req, res) => res.send("Bot Running ✅"));
 
-app.get("/", (req, res) => {
-  res.send("Bot Titip Paket Aktif 🚀");
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Server running...");
 });
 
-app.listen(process.env.PORT || 3000);
+if (!process.env.BOT_TOKEN) {
+  console.log("BOT_TOKEN tidak ditemukan di .env");
+  process.exit(1);
+}
 
-// ================= DATABASE SEDERHANA =================
-let users = {};
-let emailState = {};
-const OTP_EXPIRE = 5 * 60 * 1000;
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// ================= MENU UTAMA =================
-function mainMenu() {
-  return {
+process.on("uncaughtException", function (err) {
+  console.log("CRASH ERROR:", err);
+});
+
+const users = {};
+const emailStep = {};
+
+const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+
+  bot.sendMessage(chatId, "🤖 *BOT TITIP PAKET USAHA*\n\nSilakan pilih menu:", {
+    parse_mode: "Markdown",
     reply_markup: {
       inline_keyboard: [
         [{ text: "📦 Titip Paket", callback_data: "titip" }],
         [{ text: "💰 Cek Tarif", callback_data: "tarif" }],
         [{ text: "✉ Aktivasi Email", callback_data: "aktivasi" }],
-        [{ text: "💳 Cek Saldo", callback_data: "saldo" }]
-      ]
-    }
-  };
-}
-
-// ================= START =================
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-
-  if (!users[chatId]) {
-    users[chatId] = {
-      saldo: 50000,
-      verified: false
-    };
-  }
-
-  bot.sendMessage(
-    chatId,
-    `🚀 *Selamat Datang di Bot Titip Paket*
-
-Layanan profesional untuk pengiriman barang Anda.`,
-    { parse_mode: "Markdown", ...mainMenu() }
-  );
+        [{ text: "👤 Status Akun", callback_data: "status" }],
+      ],
+    },
+  });
 });
 
-// ================= CALLBACK =================
 bot.on("callback_query", async (query) => {
-
   const chatId = query.message.chat.id;
   const data = query.data;
 
-  if (!users[chatId]) {
-    users[chatId] = { saldo: 50000, verified: false };
-  }
-
-  // ===== TITIP PAKET =====
-  if (data === "titip") {
-    if (!users[chatId].verified) {
-      return bot.sendMessage(chatId, "❌ Aktivasi email terlebih dahulu.");
-    }
-
-    bot.sendMessage(
-      chatId,
-      `📦 *Titip Paket*
-
-Silakan kirim format berikut:
-
-Nama:
-Alamat Tujuan:
-Berat (kg):`,
-      { parse_mode: "Markdown" }
-    );
-  }
-
-  // ===== CEK TARIF =====
-  if (data === "tarif") {
-    bot.sendMessage(
-      chatId,
-      `💰 *Daftar Tarif*
-
-1 kg = Rp10.000
-2 kg = Rp18.000
-3 kg = Rp25.000
-> 5 kg diskon khusus`,
-      { parse_mode: "Markdown" }
-    );
-  }
-
-  // ===== SALDO =====
-  if (data === "saldo") {
-    bot.sendMessage(
-      chatId,
-      `💳 Saldo Anda: Rp${users[chatId].saldo}`
-    );
-  }
-
-  // ===== AKTIVASI EMAIL =====
   if (data === "aktivasi") {
-    emailState[chatId] = { step: "input_email" };
+    emailStep[chatId] = "email";
     bot.sendMessage(chatId, "📧 Masukkan email Anda:");
   }
 
-  bot.answerCallbackQuery(query.id);
-});
+  if (data === "status") {
+    if (users[chatId]?.verified) {
+      bot.sendMessage(chatId, "✅ Email sudah terverifikasi");
+    } else {
+      bot.sendMessage(chatId, "❌ Email belum terverifikasi");
+    }
+  }
 
-// ================= MESSAGE HANDLER =================
-bot.on("message", async (msg) => {
-
-  const chatId = msg.chat.id;
-  const text = msg.text;
-
-  if (!text) return;
-
-  // ===== INPUT EMAIL =====
-  if (emailState[chatId]?.step === "input_email") {
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailRegex.test(text)) {
-      return bot.sendMessage(chatId, "❌ Format email tidak valid.");
+  if (data === "titip") {
+    if (!users[chatId]?.verified) {
+      return bot.sendMessage(chatId, "⚠ Aktivasi email terlebih dahulu!");
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000);
-    const expireTime = Date.now() + OTP_EXPIRE;
+    bot.sendMessage(chatId,
+      "📦 *DATA TITIP PAKET*\n\n" +
+      "Berat: 1kg\n" +
+      "Panjang: 10cm\n" +
+      "Lebar: 10cm\n" +
+      "Tinggi: 10cm\n\n" +
+      "✅ Resi berhasil dibuat:\n" +
+      "IDP" + Math.floor(Math.random() * 999999),
+      { parse_mode: "Markdown" }
+    );
+  }
 
-    emailState[chatId] = {
-      step: "verify",
-      email: text,
-      code,
-      expire: expireTime
-    };
+  if (data === "tarif") {
+    bot.sendMessage(chatId,
+      "💰 *Estimasi Tarif*\n\n" +
+      "1kg: Rp 15.000\n" +
+      "2kg: Rp 25.000\n" +
+      "3kg: Rp 35.000",
+      { parse_mode: "Markdown" }
+    );
+  }
+});
+
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+
+  if (!emailStep[chatId]) return;
+
+  if (emailStep[chatId] === "email") {
+    const email = msg.text;
+    const otp = Math.floor(100000 + Math.random() * 900000);
+
+    users[chatId] = { email, otp, verified: false };
 
     try {
-
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASS
-        }
-      });
-
       await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: text,
-        subject: "Kode OTP Titip Paket",
-        text: `Kode OTP Anda: ${code}\nBerlaku 5 menit.`
+        from: `"Titip Paket Bot" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "Kode OTP Aktivasi",
+        text: `Kode OTP Anda adalah: ${otp}`,
       });
 
-      bot.sendMessage(chatId, "✅ OTP dikirim. Masukkan kode:");
-
+      emailStep[chatId] = "otp";
+      bot.sendMessage(chatId, "✅ OTP dikirim ke email.\nMasukkan kode OTP:");
     } catch (err) {
-      console.log(err);
-      delete emailState[chatId];
-      bot.sendMessage(chatId, "❌ Gagal kirim email.");
+      console.log("EMAIL ERROR:", err);
+      bot.sendMessage(chatId, "❌ Gagal kirim email. Cek App Password Gmail.");
+      delete emailStep[chatId];
     }
-
-    return;
   }
 
-  // ===== VERIFIKASI OTP =====
-  if (emailState[chatId]?.step === "verify") {
-
-    if (Date.now() > emailState[chatId].expire) {
-      delete emailState[chatId];
-      return bot.sendMessage(chatId, "⏰ OTP kadaluarsa. Aktivasi ulang.");
-    }
-
-    if (text == emailState[chatId].code) {
+  else if (emailStep[chatId] === "otp") {
+    if (msg.text == users[chatId].otp) {
       users[chatId].verified = true;
-      delete emailState[chatId];
-
-      return bot.sendMessage(
-        chatId,
-        "🎉 Email berhasil diverifikasi!",
-        mainMenu()
-      );
+      bot.sendMessage(chatId, "🎉 Email berhasil diverifikasi!");
     } else {
-      return bot.sendMessage(chatId, "❌ OTP salah.");
+      bot.sendMessage(chatId, "❌ OTP salah.");
     }
+    delete emailStep[chatId];
   }
-
 });
+
+console.log("Bot Aktif ✅");
