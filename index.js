@@ -1,3 +1,4 @@
+
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
 const express = require("express");
@@ -33,11 +34,11 @@ let transaksi = [];
 
 // Load transaksi dari file
 try {
-  if (fs.existsSync(TRANSAKSI_FILE)) {
-    transaksi = JSON.parse(fs.readFileSync(TRANSAKSI_FILE, "utf-8") || "[]");
-  }
+  if (!fs.existsSync(TRANSAKSI_FILE)) fs.writeFileSync(TRANSAKSI_FILE, "[]");
+  transaksi = JSON.parse(fs.readFileSync(TRANSAKSI_FILE, "utf-8") || "[]");
 } catch (e) {
   console.error("Error load transaksi file:", e.message);
+  transaksi = [];
 }
 
 // ===== HELPERS =====
@@ -50,9 +51,7 @@ function saveTransaksi() {
 }
 
 function hitungHarga(berat) {
-  const hargaPerKg = 10000;
-  const profit = 2000;
-  return (hargaPerKg * berat) + profit;
+  return (10000 * berat) + 2000;
 }
 
 function generateResi() {
@@ -63,6 +62,7 @@ function generateResi() {
 // ===== EMAIL HELPER =====
 async function sendEmail(to, subject, text) {
   try {
+    if (!to.includes("@")) return false; // email invalid
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: { user: EMAIL_ADDRESS, pass: EMAIL_PASSWORD }
@@ -72,7 +72,7 @@ async function sendEmail(to, subject, text) {
         await transporter.sendMail({ from: EMAIL_ADDRESS, to, subject, text });
         return true;
       } catch (e) {
-        console.error(`Attempt ${attempt} email gagal: ${e.message}`);
+        console.error(`Attempt ${attempt} kirim email gagal: ${e.message}`);
         await new Promise(res => setTimeout(res, RETRY_DELAY));
       }
     }
@@ -107,18 +107,22 @@ bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
   users[chatId] = users[chatId] || { step: 0 };
   try {
-    if (query.data === "titip") {
-      users[chatId].step = 1;
-      await bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
-    } else if (query.data === "riwayat") {
-      if (transaksi.length === 0) return bot.sendMessage(chatId, "Belum ada transaksi.");
-      let msg = "📄 Riwayat 10 terakhir:\n";
-      transaksi.slice(-10).forEach(t => {
-        msg += `ID: ${t.id} | Pengirim: ${t.data.nama} | Penerima: ${t.data.penerima} | Berat: ${t.data.berat}kg | Total: Rp${t.data.total}\n`;
-      });
-      await bot.sendMessage(chatId, msg);
-    } else if (query.data === "info") {
-      await bot.sendMessage(chatId, "ℹ️ Info layanan: Berat max 50kg, Gratis ongkir, Tracking realtime");
+    switch (query.data) {
+      case "titip":
+        users[chatId].step = 1;
+        await bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
+        break;
+      case "riwayat":
+        if (transaksi.length === 0) return bot.sendMessage(chatId, "Belum ada transaksi.");
+        let msg = "📄 Riwayat 10 terakhir:\n";
+        transaksi.slice(-10).forEach(t => {
+          msg += `ID: ${t.id} | Pengirim: ${t.data.nama} | Penerima: ${t.data.penerima} | Berat: ${t.data.berat}kg | Total: Rp${t.data.total}\n`;
+        });
+        await bot.sendMessage(chatId, msg);
+        break;
+      case "info":
+        await bot.sendMessage(chatId, "ℹ️ Info layanan: Berat max 50kg, Gratis ongkir, Tracking realtime");
+        break;
     }
     await bot.answerCbQuery(query.id);
   } catch (e) { console.error("Error callback:", e.message); }
@@ -160,8 +164,6 @@ bot.on("message", async (msg) => {
           await bot.sendMessage(chatId, `⏳ Pembayaran diterima. ID Transaksi: ${idTransaksi}`);
           users[chatId] = { step: 0 };
         }
-        break;
-      default:
         break;
     }
   } catch (e) { console.error("Error message handler:", e.message); }
