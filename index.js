@@ -1,9 +1,10 @@
 require("dotenv").config();
 const { Telegraf, Markup } = require("telegraf");
 const express = require("express");
+const nodemailer = require("nodemailer");
 const fs = require("fs");
 const path = require("path");
-const nodemailer = require("nodemailer");
+const bodyParser = require("body-parser");
 
 // ===== CONFIG =====
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -13,23 +14,20 @@ const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
 const PORT = process.env.PORT || 3000;
 const TRANSAKSI_FILE = path.join(__dirname, "transaksi.json");
 
-// ===== CHECK ENV =====
+// ===== INIT =====
 if (!BOT_TOKEN || !ADMIN_ID) {
   console.error("⚠ BOT_TOKEN atau ADMIN_ID belum di-set");
   process.exit(1);
 }
-
-// ===== INIT BOT & SERVER =====
 const bot = new Telegraf(BOT_TOKEN);
 const app = express();
-app.get("/", (req, res) => res.send("Bot Titip Paket Aktif ✅"));
-app.listen(PORT, () => console.log(`Server berjalan di port ${PORT}`));
+app.set("view engine", "ejs");
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, "public")));
 
 // ===== DATA =====
 let users = {};
 let transaksi = [];
-
-// ===== LOAD TRANSAKSI =====
 try {
   if (!fs.existsSync(TRANSAKSI_FILE)) fs.writeFileSync(TRANSAKSI_FILE, "[]");
   transaksi = JSON.parse(fs.readFileSync(TRANSAKSI_FILE, "utf-8") || "[]");
@@ -51,22 +49,25 @@ function hitungHarga(berat) {
   return 10000 * berat + 2000;
 }
 
-async function sendEmail(to, subject, text) {
-  try {
-    if (!EMAIL_ADDRESS || !EMAIL_PASSWORD || !to.includes("@")) return false;
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: EMAIL_ADDRESS, pass: EMAIL_PASSWORD },
-    });
-    await transporter.sendMail({ from: EMAIL_ADDRESS, to, subject, text });
-    return true;
-  } catch (e) {
-    console.error("Email error:", e.message);
-    return false;
+async function sendEmail(to, subject, text, retries = 3) {
+  if (!EMAIL_ADDRESS || !EMAIL_PASSWORD || !to.includes("@")) return false;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const transporter = nodemailer.createTransport({
+        service: "gmail",
+        auth: { user: EMAIL_ADDRESS, pass: EMAIL_PASSWORD },
+      });
+      await transporter.sendMail({ from: EMAIL_ADDRESS, to, subject, text });
+      return true;
+    } catch (e) {
+      console.error(`Email attempt ${attempt} failed:`, e.message);
+      if (attempt === retries) return false;
+      await new Promise((res) => setTimeout(res, 3000)); // wait 3s before retry
+    }
   }
 }
 
-// ===== START + MENU =====
+// ===== BOT START + MENU =====
 bot.start(async (ctx) => {
   const chatId = ctx.chat.id;
   users[chatId] = { step: 0 };
@@ -143,28 +144,29 @@ bot.on("message", async (msg) => {
         users[chatId].step = 4;
         await bot.sendMessage(
           chatId,
-          `📦 Konfirmasi:\nPengirim: ${users[chatId].nama}\nPenerima: ${users[chatId].penerima}\nBerat: ${berat}kg\nTotal: Rp${users[chatId].total}\nKetik *SUDAH* setelah transfer.`,
+          `📦 Konfirmasi:\nPengirim: ${users[chatId].nama}\nPenerima: ${users[chatId].penerima}\nBerat: ${berat}kg\nTotal: Rp${users[chatId].total}\nMasukkan email Anda untuk konfirmasi:`,
           { parse_mode: "Markdown" }
         );
         break;
       case 4:
-        if (text.toUpperCase() === "SUDAH") {
-          const id = "TRX" + Date.now();
-          transaksi.push({ id, user: chatId, data: users[chatId] });
-          saveTransaksi();
-          await bot.sendMessage(
-            ADMIN_ID,
-            `🔔 TRANSAKSI BARU\nID:${id}\nPengirim:${users[chatId].nama}\nPenerima:${users[chatId].penerima}\nBerat:${users[chatId].berat}kg\nTotal:Rp${users[chatId].total}\nBuat resi: /resi ${id} NOMORRESI`
-          );
-          users[chatId] = { step: 0 };
-        }
+        if (!text.includes("@")) return bot.sendMessage(chatId, "⚠ Email tidak valid");
+        users[chatId].email = text;
+        const id = "TRX" + Date.now();
+        transaksi.push({ id, user: chatId, data: users[chatId] });
+        saveTransaksi();
+        await sendEmail(
+          ADMIN_ID + "@telegram.fake", // Email admin opsional, atau bisa gunakan email nyata
+          "Transaksi Baru",
+          `ID:${id}\nPengirim:${users[chatId].nama}\nPenerima:${users[chatId].penerima}\nBerat:${users[chatId].berat}kg\nTotal:Rp${users[chatId].total}\nEmail:${users[chatId].email}`
+        );
+        await bot.sendMessage(chatId, `✅ Transaksi berhasil! ID: ${id}\nAdmin akan memproses resi.`);
+        users[chatId] = { step: 0 };
         break;
       default:
-        // Ignore stiker, foto, voice, dll
         break;
     }
   } catch (e) {
-    console.error("Message handler error:", e.message);
+    console.error("Message error:", e.message);
   }
 });
 
@@ -176,11 +178,18 @@ bot.onText(/\/resi (.+) (.+)/, async (msg, match) => {
       nomorResi = match[2];
     const trx = transaksi.find((t) => t.id === id);
     if (!trx) return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
+    trx.data.resi = nomorResi;
+    saveTransaksi();
     await bot.sendMessage(trx.user, `✅ Resi: ${nomorResi} sudah dibuat. Terima kasih 🙏`);
     await bot.sendMessage(msg.chat.id, "Resi berhasil dikirim ke user.");
   } catch (e) {
     console.error("Admin resi error:", e.message);
   }
+});
+
+// ===== DASHBOARD MINI =====
+app.get("/admin", (req, res) => {
+  res.render("dashboard", { transaksi });
 });
 
 // ===== GLOBAL ERROR =====
@@ -189,4 +198,4 @@ process.on("unhandledRejection", (reason) => console.error("Unhandled Rejection:
 process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err.message));
 
 // ===== LAUNCH =====
-bot.launch().then(() => console.log("Bot Titip Paket berjalan ✅"));
+bot.launch().then(() => console.log("Bot Titip Paket Ultra berjalan ✅"));
