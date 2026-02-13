@@ -9,6 +9,7 @@ const PORT = process.env.PORT || 3000;
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = process.env.ADMIN_ID;
+const VC_CODE = process.env.VC_CODE;
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
@@ -21,35 +22,28 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Kirim email dengan callback sukses/gagal
-if (user.step === "aktivasi_email") {
-  const email = text;
-  user.email = email;
+// ----- Fungsi kirim email dengan retry 3x -----
+function kirimEmailWithRetry(to, subject, html, retries = 2, callback) {
+  transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, html }, (err, info) => {
+    if (err) {
+      console.error("Gagal kirim email:", err);
 
-  const subject = "Aktivasi Email Bot Titip Paket";
-  const html = `
-    <h3>Email Anda Berhasil Diverifikasi!</h3>
-    <p>Email <b>${email}</b> sudah terhubung dengan bot Titip Paket.</p>
-    <p>Sekarang Anda bisa menggunakan semua fitur bot termasuk Titip Paket dan nomor resi otomatis.</p>
-  `;
+      if (retries > 0) {
+        console.log(`Mencoba kirim ulang, sisa percobaan: ${retries}`);
+        return kirimEmailWithRetry(to, subject, html, retries - 1, callback);
+      }
 
-  // Menggunakan fungsi retry
-  kirimEmailWithRetry(email, subject, html, 2, (success) => {
-    if (success) {
-      user.verified = true;
-      user.token = crypto.randomBytes(16).toString("hex");
-      user.step = 0;
-      bot.sendMessage(chatId, `✅ Email ${email} berhasil diverifikasi dan email percobaan sudah masuk inbox Anda.`);
+      if (callback) callback(false);
     } else {
-      bot.sendMessage(chatId, `⚠ Email ${email} gagal dikirim setelah 3 percobaan. Silakan cek kembali alamat email Anda.`);
+      console.log("Email terkirim:", info.response);
+      if (callback) callback(true);
     }
   });
-  return;
 }
 
 // ----- Database sementara -----
-let users = {};      // { chatId: { step, nama, email, hp } }
-let transaksi = [];  // { id, userChatId, data, resi }
+let users = {};      // { chatId: { step, nama, email, hp, toko, verified } }
+let transaksi = [];  // { id, userChatId, user, paket }
 
 // ----- Fungsi bantu -----
 function hitungHarga(berat) {
@@ -63,9 +57,7 @@ function generateResi() {
 }
 
 // ----- Express server sederhana -----
-app.get("/", (req, res) => {
-  res.send("Bot Titip Paket Aktif ✅");
-});
+app.get("/", (req, res) => res.send("Bot Titip Paket Aktif ✅"));
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 // ----- Bot Telegram -----
@@ -80,13 +72,12 @@ bot.onText(/\/start/, (msg) => {
   ];
 
   bot.sendMessage(chatId,
-    `🤖 *BOT TITIP PAKET USAHA*\nPilih menu untuk memulai.`,
+    `📦 *BOT TITIP PAKET*\nPilih menu untuk memulai.`,
     { parse_mode: "Markdown", reply_markup: { keyboard, resize_keyboard: true } }
   );
 });
 
-// Handler utama
-bot.on("message", (msg) => {
+bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text?.trim();
   if (!text) return;
@@ -95,36 +86,36 @@ bot.on("message", (msg) => {
   const user = users[chatId];
 
   try {
-    // ----- Menu Aktivasi Email otomatis -----
+    // ----- Aktivasi Email Realtime -----
     if (text === "📧 Aktivasi Email") {
       user.step = "aktivasi_email";
       return bot.sendMessage(chatId, "Masukkan email Anda:");
     }
-    
-if (user.step === "aktivasi_email") {
-  const email = text;
-  user.email = email;
 
-  // Kirim email percobaan untuk masuk inbox realtime
-  const subject = "Aktivasi Email Bot Titip Paket";
-  const html = `
-    <h3>Email Anda Berhasil Diverifikasi!</h3>
-    <p>Selamat, email <b>${email}</b> sudah terhubung dengan bot Titip Paket.</p>
-    <p>Sekarang Anda bisa menggunakan semua fitur bot termasuk Titip Paket dan nomor resi otomatis.</p>
-  `;
+    if (user.step === "aktivasi_email") {
+      const email = text;
+      user.email = email;
 
-  kirimEmail(email, subject, html, (success) => {
-    if (success) {
-      user.verified = true;                  // Tandai verified
-      user.token = crypto.randomBytes(16).toString("hex");
-      user.step = 0;
-      bot.sendMessage(chatId, `✅ Email ${email} berhasil diverifikasi dan email percobaan sudah masuk inbox Anda.`);
-    } else {
-      bot.sendMessage(chatId, `⚠ Email ${email} gagal dikirim. Silakan cek kembali alamat email Anda.`);
+      const subject = "Aktivasi Email Bot Titip Paket";
+      const html = `
+        <h3>Email Anda Berhasil Diverifikasi!</h3>
+        <p>Email <b>${email}</b> sudah terhubung dengan bot Titip Paket.</p>
+        <p>Sekarang Anda bisa menggunakan semua fitur bot termasuk Titip Paket dan nomor resi otomatis.</p>
+      `;
+
+      kirimEmailWithRetry(email, subject, html, 2, (success) => {
+        if (success) {
+          user.verified = true;
+          user.token = crypto.randomBytes(16).toString("hex");
+          user.step = 0;
+          bot.sendMessage(chatId, `✅ Email ${email} berhasil diverifikasi dan email percobaan sudah masuk inbox Anda.`);
+        } else {
+          user.step = 0;
+          bot.sendMessage(chatId, `⚠ Email ${email} gagal dikirim setelah 3 percobaan. Silakan cek kembali alamat email Anda.`);
+        }
+      });
+      return;
     }
-  });
-  return;
-}
 
     // ----- Menu Titip Paket -----
     if (text === "📦 Titip Paket") {
@@ -135,35 +126,30 @@ if (user.step === "aktivasi_email") {
       return bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
     }
 
-    // Step 1: Nama Pengirim
     if (user.step === 1) {
       user.nama = text;
       user.step = 2;
       return bot.sendMessage(chatId, "Masukkan Nomor HP Pengirim:");
     }
 
-    // Step 2: Nomor HP
     if (user.step === 2) {
       user.hp = text;
       user.step = 3;
       return bot.sendMessage(chatId, "Masukkan Kode Toko (Indomaret):");
     }
 
-    // Step 3: Kode Toko
     if (user.step === 3) {
       user.toko = text;
       user.step = 4;
       return bot.sendMessage(chatId, "Masukkan Berat Paket (kg, default 1kg jika kosong):");
     }
 
-    // Step 4: Berat Paket
     if (user.step === 4) {
       let berat = parseInt(text);
-      if (isNaN(berat) || berat <= 0) berat = 1; // default 1kg
+      if (isNaN(berat) || berat <= 0) berat = 1;
       const total = hitungHarga(berat);
       const resi = generateResi();
 
-      // Data paket otomatis
       const paket = {
         kategori: "Lain-lain",
         deskripsi: "Lain",
@@ -173,12 +159,11 @@ if (user.step === "aktivasi_email") {
         lebar: 10,
         tinggi: 10,
         resi,
-        vc: "FREEONGKIR123"
+        vc: VC_CODE
       };
 
       transaksi.push({ id: resi, userChatId: chatId, user, paket });
 
-      // Kirim ke Telegram
       bot.sendMessage(chatId,
 `📦 Paket Berhasil Dibuat
 ID Transaksi: ${resi}
@@ -196,7 +181,6 @@ Nomor Resi: ${paket.resi}
 Terima kasih 🙏`
       );
 
-      // Kirim notifikasi ke admin
       bot.sendMessage(ADMIN_ID,
 `🔔 TRANSAKSI BARU
 ID: ${resi}
@@ -206,7 +190,6 @@ Toko: ${user.toko}
 Voucher: ${paket.vc}`
       );
 
-      // Kirim email ke user dengan callback
       const emailHtml = `
 <h3>Paket Anda Berhasil Dibuat</h3>
 <p>ID Transaksi: ${resi}</p>
@@ -222,11 +205,11 @@ Voucher: ${paket.vc}`
 <p>Nomor Resi: <b>${paket.resi}</b></p>
 <p>Terima kasih telah menggunakan layanan Titip Paket.</p>`;
 
-      kirimEmail(user.email, "Konfirmasi Paket Anda", emailHtml, (success) => {
+      kirimEmailWithRetry(user.email, "Konfirmasi Paket Anda", emailHtml, 2, (success) => {
         if (success) {
           bot.sendMessage(chatId, "✅ Email konfirmasi berhasil dikirim ke inbox Anda.");
         } else {
-          bot.sendMessage(chatId, "⚠ Email gagal dikirim. Silakan cek alamat email Anda.");
+          bot.sendMessage(chatId, "⚠ Email gagal dikirim setelah 3 percobaan. Silakan cek alamat email Anda.");
         }
       });
 
@@ -251,18 +234,19 @@ Voucher: ${paket.vc}`
     if (text === "ℹ️ Bantuan") {
       return bot.sendMessage(chatId,
 `*Cara pakai:*
-1. Aktivasi email lewat 📧 Aktivasi Email.
+1. Aktivasi email lewat 📧 Aktivasi Email (langsung masuk inbox, retry 3x jika gagal).
 2. Pilih 📦 Titip Paket.
 3. Masukkan Nama, HP, Kode Toko.
 4. Masukkan Berat Paket (default 1kg).
 5. Bot akan auto generate resi + voucher gratis ongkir.
-6. Email konfirmasi akan dikirim dan bot beri notifikasi berhasil/gagal.`,
+6. Email konfirmasi dikirim dan bot beri notifikasi berhasil/gagal.`,
         { parse_mode: "Markdown" }
       );
     }
 
   } catch (err) {
     console.error("Error:", err);
+    user.step = 0; // Reset step jika error
     bot.sendMessage(chatId, "⚠ Terjadi kesalahan. Silakan coba lagi.");
   }
 });
