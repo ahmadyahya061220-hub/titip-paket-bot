@@ -98,23 +98,18 @@ Total: Rp 3.500
       }
     });
 
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: text,
-      subject: "Kode Aktivasi",
-      text: "Kode verifikasi Anda: " + code
-    });
+    try {
+  await transporter.sendMail({
+    from: process.env.EMAIL_USER,
+    to: text,
+    subject: "Kode Aktivasi",
+    text: "Kode verifikasi Anda: " + code
+  });
 
-    bot.sendMessage(chatId, "Kode aktivasi sudah dikirim. Masukkan kode:");
-  }
+  console.log("Email berhasil dikirim");
+  bot.sendMessage(chatId, "Kode aktivasi sudah dikirim. Masukkan kode:");
 
-  else if (emailCodes[chatId] && emailCodes[chatId].code) {
-    if (text == emailCodes[chatId].code) {
-      bot.sendMessage(chatId, "✅ Email berhasil diaktivasi!");
-      delete emailCodes[chatId];
-    } else {
-      bot.sendMessage(chatId, "❌ Kode salah.");
-    }
-  }
-
-});
+} catch (error) {
+  console.error("Error kirim email:", error);
+  bot.sendMessage(chatId, "❌ Gagal mengirim email. Cek server.");
+}
