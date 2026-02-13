@@ -59,7 +59,7 @@ bot.onText(/\/start/, (msg) => {
   if (!users[chatId]) {
     users[chatId] = {
       saldo: 50000,
-      verified: false
+      verified: true
     };
   }
 
