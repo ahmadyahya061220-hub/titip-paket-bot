@@ -30,7 +30,7 @@ const TARIF = 12000;
 // ================= MENU PROFESIONAL =================
 function mainMenu(chatId) {
   bot.sendMessage(chatId,
-`🚚 *TITIP PAKET EXPRESS*
+`📦 *TITIP PAKET*
 Solusi Kirim Paket Cepat & Aman
 
 Silakan pilih layanan di bawah ini:`,
