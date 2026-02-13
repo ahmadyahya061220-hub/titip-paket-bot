@@ -1,15 +1,15 @@
 {
-  "name": "titip-paket-bot",
+  "name": "bot-titip-paket",
   "version": "1.0.0",
+  "description": "Telegram Bot Titip Paket Anti-Crash",
   "main": "index.js",
-  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
     "express": "^4.18.2",
-    "node-telegram-bot-api": "^0.61.0",
-    "nodemailer": "^6.9.8"
+    "nodemailer": "^6.9.3",
+    "telegraf": "^4.12.0",
+    "dotenv": "^16.3.1"
   }
 }
