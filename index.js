@@ -43,17 +43,10 @@ try {
 
 // ===== HELPERS =====
 function saveTransaksi() {
-  try {
-    fs.writeFileSync(TRANSAKSI_FILE, JSON.stringify(transaksi, null, 2));
-  } catch (e) {
-    console.error("Error save transaksi:", e.message);
-  }
+  try { fs.writeFileSync(TRANSAKSI_FILE, JSON.stringify(transaksi, null, 2)); }
+  catch (e) { console.error("Error save transaksi:", e.message); }
 }
-
-function hitungHarga(berat) {
-  return (10000 * berat) + 2000;
-}
-
+function hitungHarga(berat) { return (10000 * berat) + 2000; }
 function generateResi() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   return Array.from({ length: 10 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
@@ -77,10 +70,7 @@ async function sendEmail(to, subject, text) {
       }
     }
     return false;
-  } catch (err) {
-    console.error("Global error email:", err.message);
-    return false;
-  }
+  } catch (err) { console.error("Global error email:", err.message); return false; }
 }
 
 // ===== START COMMAND =====
@@ -108,10 +98,7 @@ bot.on("callback_query", async (query) => {
   users[chatId] = users[chatId] || { step: 0 };
   try {
     switch (query.data) {
-      case "titip":
-        users[chatId].step = 1;
-        await bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
-        break;
+      case "titip": users[chatId].step = 1; await bot.sendMessage(chatId, "Masukkan Nama Pengirim:"); break;
       case "riwayat":
         if (transaksi.length === 0) return bot.sendMessage(chatId, "Belum ada transaksi.");
         let msg = "📄 Riwayat 10 terakhir:\n";
@@ -120,9 +107,7 @@ bot.on("callback_query", async (query) => {
         });
         await bot.sendMessage(chatId, msg);
         break;
-      case "info":
-        await bot.sendMessage(chatId, "ℹ️ Info layanan: Berat max 50kg, Gratis ongkir, Tracking realtime");
-        break;
+      case "info": await bot.sendMessage(chatId, "ℹ️ Info layanan: Berat max 50kg, Gratis ongkir, Tracking realtime"); break;
     }
     await bot.answerCbQuery(query.id);
   } catch (e) { console.error("Error callback:", e.message); }
@@ -135,16 +120,8 @@ bot.on("message", async (msg) => {
   users[chatId] = users[chatId] || { step: 0 };
   try {
     switch(users[chatId].step) {
-      case 1:
-        users[chatId].nama = text;
-        users[chatId].step = 2;
-        await bot.sendMessage(chatId, "Masukkan Nama Penerima:");
-        break;
-      case 2:
-        users[chatId].penerima = text;
-        users[chatId].step = 3;
-        await bot.sendMessage(chatId, "Masukkan Berat (kg):");
-        break;
+      case 1: users[chatId].nama = text; users[chatId].step = 2; await bot.sendMessage(chatId, "Masukkan Nama Penerima:"); break;
+      case 2: users[chatId].penerima = text; users[chatId].step = 3; await bot.sendMessage(chatId, "Masukkan Berat (kg):"); break;
       case 3:
         const berat = parseInt(text);
         if (isNaN(berat) || berat <= 0) return bot.sendMessage(chatId, "⚠ Berat tidak valid.");
