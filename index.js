@@ -51,8 +51,8 @@ bot.on("message", (msg) => {
     if (text === "💰 Tarif") {
         bot.sendMessage(chatId,
             "💰 Tarif Titip Paket:\n\n" +
-            "Biaya Admin: Rp1.000 per paket\n" +
-            "Biaya Admin Apa Jare AndiiLouw Ya Gess."
+            "Biaya Garap : Rp1.000 per paket\n" +
+            "Biaya Apa Jare AndiiLouw Ya Gess."
         );
         return;
     }
