@@ -13,26 +13,32 @@ const VC_CODE = process.env.VC_CODE;
 
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// ----- Setup email transporter -----
+// ----- Setup email transporter (ProtonMail Bridge / SMTP fleksibel) -----
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT),
+  secure: parseInt(process.env.SMTP_PORT) === 465, // SSL
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
   }
+});
+
+// Verifikasi koneksi SMTP
+transporter.verify((err, success) => {
+  if (err) console.error("SMTP Error:", err);
+  else console.log("SMTP siap kirim email");
 });
 
 // ----- Fungsi kirim email dengan retry 3x -----
 function kirimEmailWithRetry(to, subject, html, retries = 2, callback) {
-  transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, html }, (err, info) => {
+  transporter.sendMail({ from: process.env.SMTP_USER, to, subject, html }, (err, info) => {
     if (err) {
       console.error("Gagal kirim email:", err);
-
       if (retries > 0) {
         console.log(`Mencoba kirim ulang, sisa percobaan: ${retries}`);
         return kirimEmailWithRetry(to, subject, html, retries - 1, callback);
       }
-
       if (callback) callback(false);
     } else {
       console.log("Email terkirim:", info.response);
@@ -72,7 +78,7 @@ bot.onText(/\/start/, (msg) => {
   ];
 
   bot.sendMessage(chatId,
-    `📦 *BOT TITIP PAKET*\nPilih menu untuk memulai.`,
+    `🤖 *BOT TITIP PAKET*\nPilih menu untuk memulai.`,
     { parse_mode: "Markdown", reply_markup: { keyboard, resize_keyboard: true } }
   );
 });
@@ -108,10 +114,10 @@ bot.on("message", async (msg) => {
           user.verified = true;
           user.token = crypto.randomBytes(16).toString("hex");
           user.step = 0;
-          bot.sendMessage(chatId, `✅ Email ${email} berhasil diverifikasi dan email percobaan sudah masuk inbox Anda.`);
+          bot.sendMessage(chatId, `✅ Email ${email} berhasil diverifikasi dan sudah masuk inbox Anda.`);
         } else {
           user.step = 0;
-          bot.sendMessage(chatId, `⚠ Email ${email} gagal dikirim setelah 3 percobaan. Silakan cek kembali alamat email Anda.`);
+          bot.sendMessage(chatId, `⚠ Email ${email} gagal dikirim setelah 3 percobaan. Silakan cek alamat email Anda.`);
         }
       });
       return;
