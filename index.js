@@ -171,6 +171,8 @@ Terima kasih 🙏`,
    EMAIL MONITOR (PROTON BRIDGE)
 ========================= */
 
+if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+
 const imap = new Imap({
   user: process.env.EMAIL_USER,
   password: process.env.EMAIL_PASS,
