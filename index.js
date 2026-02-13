@@ -1,81 +1,66 @@
-/**
- * Bot Titip Paket Node.js - Final Version
- * Anti-crash, PM2-friendly, handle semua error
- */
-
 const { Telegraf, Markup } = require('telegraf');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
 
-// ====== CONFIG ======
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const EMAIL_ADDRESS = process.env.EMAIL_ADDRESS;
 const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
 const MAX_RETRY = 3;
-const RETRY_DELAY = 2000; // ms
+const RETRY_DELAY = 2000;
 const RIWAYAT_FILE = path.join(__dirname, 'riwayat.json');
 
 if (!BOT_TOKEN || !EMAIL_ADDRESS || !EMAIL_PASSWORD) {
-  console.error("⚠ Pastikan environment variables BOT_TOKEN, EMAIL_ADDRESS, EMAIL_PASSWORD sudah diatur!");
+  console.error("⚠ Environment variables BOT_TOKEN, EMAIL_ADDRESS, EMAIL_PASSWORD harus di-set!");
   process.exit(1);
 }
 
-// ====== INIT BOT ======
 const bot = new Telegraf(BOT_TOKEN);
+const sessions = {}; // untuk session per chat
 
-// ====== GLOBAL SESSION ======
-const sessions = {}; // simpan session per chat untuk input paket
-
-// ====== EMAIL FUNCTION ======
+// ====== Email Helper ======
 async function sendEmail(to, subject, text) {
   try {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: { user: EMAIL_ADDRESS, pass: EMAIL_PASSWORD },
+      auth: { user: EMAIL_ADDRESS, pass: EMAIL_PASSWORD }
     });
 
-    let success = false;
     for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
       try {
         await transporter.sendMail({ from: EMAIL_ADDRESS, to, subject, text });
-        success = true;
-        break;
+        return true;
       } catch (e) {
-        console.error(`Percobaan ${attempt} kirim email gagal:`, e.message);
+        console.error(`Attempt ${attempt} kirim email gagal: ${e.message}`);
         await new Promise(res => setTimeout(res, RETRY_DELAY));
       }
     }
-    return success;
+    return false;
   } catch (err) {
-    console.error("Error email function:", err.message);
+    console.error("Error global email:", err.message);
     return false;
   }
 }
 
-// ====== HELPERS ======
+// ====== Helpers ======
 function generateResi() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let resi = '';
-  for (let i = 0; i < 10; i++) resi += chars.charAt(Math.floor(Math.random() * chars.length));
-  return resi;
+  return Array.from({ length: 10 }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join('');
 }
 
-function logPackage(packageData) {
+function logPackage(data) {
   try {
-    let riwayat = [];
-    if (fs.existsSync(RIWAYAT_FILE)) {
-      const content = fs.readFileSync(RIWAYAT_FILE, 'utf-8');
-      riwayat = content ? JSON.parse(content) : [];
-    }
-    riwayat.push(packageData);
+    if (!fs.existsSync(RIWAYAT_FILE)) fs.writeFileSync(RIWAYAT_FILE, "[]");
+    const content = fs.readFileSync(RIWAYAT_FILE, 'utf-8') || "[]";
+    const riwayat = JSON.parse(content);
+    riwayat.push(data);
     fs.writeFileSync(RIWAYAT_FILE, JSON.stringify(riwayat, null, 2));
   } catch (e) {
-    console.error("Error saat menyimpan riwayat:", e.message);
+    console.error("Error logPackage:", e.message);
   }
 }
 
-// ====== START COMMAND ======
+// ====== Start Command ======
 bot.start(async (ctx) => {
   try {
     sessions[ctx.chat.id] = {};
@@ -84,47 +69,35 @@ bot.start(async (ctx) => {
       [Markup.button.callback('📄 Riwayat Paket', 'riwayat')],
       [Markup.button.callback('ℹ️ Info Layanan', 'info')]
     ]));
-  } catch (e) {
-    console.error("Error start command:", e.message);
-  }
+  } catch (e) { console.error("Error start:", e.message); }
 });
 
-// ====== MENU ACTION ======
+// ====== Menu Handler ======
 bot.action(/.*/, async (ctx) => {
   try {
     const action = ctx.callbackQuery.data;
     sessions[ctx.chat.id] = sessions[ctx.chat.id] || {};
 
     if (action === 'titip') {
-      await ctx.reply("Silakan masukkan data paket dengan format:\nBerat(kg);Panjang(cm);Lebar(cm);Tinggi(cm);Alamat Tujuan");
+      await ctx.reply("Masukkan paket: Berat(kg);Panjang;Lebar;Tinggi;Alamat");
       sessions[ctx.chat.id].step = 'input_package';
     } else if (action === 'riwayat') {
-      let msg = "Belum ada paket.";
       try {
-        if (fs.existsSync(RIWAYAT_FILE)) {
-          const riwayat = JSON.parse(fs.readFileSync(RIWAYAT_FILE));
-          if (riwayat.length > 0) {
-            msg = "📄 Riwayat Paket (10 terakhir):\n";
-            riwayat.slice(-10).forEach(p => {
-              msg += `Resi: ${p.resi} | ${p.berat}kg | ${p.dims} | ${p.alamat}\n`;
-            });
-          }
-        }
-      } catch (e) {
-        console.error("Error membaca riwayat:", e.message);
-        msg = "⚠ Gagal membaca riwayat paket.";
-      }
-      await ctx.reply(msg);
+        if (!fs.existsSync(RIWAYAT_FILE)) { await ctx.reply("Belum ada paket."); return; }
+        const riwayat = JSON.parse(fs.readFileSync(RIWAYAT_FILE));
+        if (riwayat.length === 0) { await ctx.reply("Belum ada paket."); return; }
+        let msg = "📄 Riwayat Paket (10 terakhir):\n";
+        riwayat.slice(-10).forEach(p => { msg += `Resi: ${p.resi} | ${p.berat}kg | ${p.dims} | ${p.alamat}\n`; });
+        await ctx.reply(msg);
+      } catch (e) { await ctx.reply("⚠ Gagal membaca riwayat"); console.error(e.message); }
     } else if (action === 'info') {
-      await ctx.reply("Layanan titip paket:\n- Berat maksimal 50kg\n- Gratis ongkir di kota tertentu\n- Paket di-tracking realtime");
+      await ctx.reply("Layanan:\n- Berat max 50kg\n- Gratis ongkir tertentu\n- Tracking realtime");
     }
     await ctx.answerCbQuery();
-  } catch (e) {
-    console.error("Error menu action:", e.message);
-  }
+  } catch (e) { console.error("Error menu action:", e.message); }
 });
 
-// ====== INPUT PACKAGE ======
+// ====== Input Package Handler ======
 bot.on('text', async (ctx) => {
   try {
     sessions[ctx.chat.id] = sessions[ctx.chat.id] || {};
@@ -132,10 +105,7 @@ bot.on('text', async (ctx) => {
 
     const text = ctx.message.text;
     const parts = text.split(';').map(x => x.trim());
-    if (parts.length !== 5) {
-      await ctx.reply("Format salah! Gunakan titik koma (;) seperti contoh.");
-      return;
-    }
+    if (parts.length !== 5) { await ctx.reply("Format salah! Gunakan ;"); return; }
 
     const [berat, panjang, lebar, tinggi, alamat] = parts;
     const dims = `${panjang}x${lebar}x${tinggi}`;
@@ -145,35 +115,26 @@ bot.on('text', async (ctx) => {
     logPackage(packageData);
 
     const subject = `Paket Baru - Resi ${resi}`;
-    const body = `Paket baru telah dibuat:\nResi: ${resi}\nBerat: ${berat}kg\nDimensi: ${dims}\nAlamat: ${alamat}`;
+    const body = `Paket baru:\nResi: ${resi}\nBerat: ${berat}kg\nDimensi: ${dims}\nAlamat: ${alamat}`;
     const emailSuccess = await sendEmail(EMAIL_ADDRESS, subject, body);
 
-    await ctx.reply(`✅ Paket berhasil dibuat!\nNomor Resi: ${resi}\nEmail notifikasi ${emailSuccess ? 'terkirim ✅' : 'gagal ❌'}`);
-
+    await ctx.reply(`✅ Paket berhasil dibuat!\nResi: ${resi}\nEmail ${emailSuccess ? "terkirim ✅" : "gagal ❌"}`);
     sessions[ctx.chat.id].step = null;
   } catch (e) {
     console.error("Error input package:", e.message);
-    await ctx.reply("⚠ Terjadi kesalahan saat memproses paket. Coba lagi.");
+    await ctx.reply("⚠ Terjadi kesalahan saat memproses paket.");
   }
 });
 
-// ====== GLOBAL ERROR HANDLER ======
-bot.catch((err, ctx) => {
-  console.error(`Terjadi error global: ${err.message}`);
-});
+// ====== Global Error ======
+bot.catch((err) => console.error("Bot global error:", err.message));
 
-// ====== PROCESS LEVEL ERROR HANDLING ======
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
+process.on('unhandledRejection', (reason) => console.error("Unhandled Rejection:", reason));
+process.on('uncaughtException', (err) => console.error("Uncaught Exception:", err.message));
 
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception thrown:', err.message);
-});
+// ====== Launch Bot ======
+bot.launch().then(() => console.log("Bot Titip Paket berjalan ✅"));
 
-// ====== LAUNCH BOT ======
-bot.launch().then(() => console.log("Bot Titip Paket berjalan... ✅"));
-
-// ====== GRACEFUL STOP ======
+// ====== Graceful Stop ======
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
