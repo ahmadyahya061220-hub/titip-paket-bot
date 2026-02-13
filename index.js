@@ -1,147 +1,94 @@
 require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
-const express = require("express");
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
-const app = express();
 
 const ADMIN_ID = process.env.ADMIN_ID;
-const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => {
-  res.send("Bot Titip Paket Aktif ✅");
-});
-
-app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
-});
-
-let users = {};
-let transaksi = [];
-
-function hitungHarga(berat) {
-  const hargaPerKg = 10000;
-  const profit = 2000;
-  return (hargaPerKg * berat) + profit;
-}
+let orders = {};
+let orderCounter = 1;
 
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id,
-`🚀 *LAYANAN TITIP PAKET*
-
-Klik 📦 Titip Paket untuk mulai`,
-{
-  parse_mode: "Markdown",
-  reply_markup: {
-    keyboard: [["📦 Titip Paket"]],
-    resize_keyboard: true
-  }
-});
+    bot.sendMessage(msg.chat.id,
+        "Selamat datang di Bot Titip Paket\n\n" +
+        "Klik menu:\n" +
+        "📦 Titip Paket"
+    );
 });
 
-bot.on("message", (msg) => {
+bot.on("message", async (msg) => {
+    const chatId = msg.chat.id;
 
-  const chatId = msg.chat.id;
-  const text = msg.text;
+    if (msg.text === "📦 Titip Paket") {
+        orders[chatId] = { step: 1 };
+        bot.sendMessage(chatId, "Masukkan Nama Penerima:");
+    }
 
-  if (!users[chatId]) users[chatId] = { step: 0 };
+    else if (orders[chatId]?.step === 1) {
+        orders[chatId].nama = msg.text;
+        orders[chatId].step = 2;
+        bot.sendMessage(chatId, "Masukkan No HP Penerima:");
+    }
 
-  if (text === "📦 Titip Paket") {
-    users[chatId] = { step: 1 };
-    return bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
-  }
+    else if (orders[chatId]?.step === 2) {
+        orders[chatId].hp = msg.text;
+        orders[chatId].step = 3;
+        bot.sendMessage(chatId, "Masukkan Alamat Lengkap:");
+    }
 
-  if (users[chatId].step === 1) {
-    users[chatId].nama = text;
-    users[chatId].step = 2;
-    return bot.sendMessage(chatId, "Masukkan Nama Penerima:");
-  }
+    else if (orders[chatId]?.step === 3) {
+        orders[chatId].alamat = msg.text;
+        orders[chatId].step = 4;
+        bot.sendMessage(chatId, "Masukkan Berat (kg):");
+    }
 
-  if (users[chatId].step === 2) {
-    users[chatId].penerima = text;
-    users[chatId].step = 3;
-    return bot.sendMessage(chatId, "Masukkan Berat (kg):");
-  }
+    else if (orders[chatId]?.step === 4) {
+        orders[chatId].berat = msg.text;
 
-  if (users[chatId].step === 3) {
+        const orderId = orderCounter++;
+        orders[chatId].id = orderId;
+        orders[chatId].status = "MENUNGGU PROSES";
 
-    const berat = parseInt(text);
-    const total = hitungHarga(berat);
+        const detail =
+            `ORDER BARU #${orderId}\n\n` +
+            `Nama: ${orders[chatId].nama}\n` +
+            `HP: ${orders[chatId].hp}\n` +
+            `Alamat: ${orders[chatId].alamat}\n` +
+            `Berat: ${orders[chatId].berat} kg\n\n` +
+            `Balas dengan:\n/resi ${orderId} NOMOR_RESI`;
 
-    users[chatId].berat = berat;
-    users[chatId].total = total;
-    users[chatId].step = 4;
+        bot.sendMessage(ADMIN_ID, detail);
 
-    return bot.sendMessage(chatId,
-`📦 *KONFIRMASI*
+        bot.sendMessage(chatId,
+            `Order berhasil dikirim!\n\n` +
+            `ID Order: ${orderId}\n` +
+            `Status: MENUNGGU PROSES\n\n` +
+            `Resi akan dikirim setelah diproses.`
+        );
 
-Pengirim: ${users[chatId].nama}
-Penerima: ${users[chatId].penerima}
-Berat: ${berat} kg
-
-Total Bayar: Rp${total}
-
-Silakan transfer ke:
-DANA/OVO/BCA XXXXX
-
-Setelah transfer ketik: SUDAH`,
-{ parse_mode: "Markdown" });
-  }
-
-  if (users[chatId].step === 4 && text.toUpperCase() === "SUDAH") {
-
-    const idTransaksi = "TRX" + Date.now();
-
-    transaksi.push({
-      id: idTransaksi,
-      user: chatId,
-      data: users[chatId]
-    });
-
-    bot.sendMessage(chatId,
-`⏳ Pembayaran diterima.
-
-Admin sedang memproses.
-ID Transaksi: ${idTransaksi}`);
-
-    // Notifikasi ke admin
-    bot.sendMessage(ADMIN_ID,
-`🔔 TRANSAKSI BARU
-
-ID: ${idTransaksi}
-User: ${chatId}
-Pengirim: ${users[chatId].nama}
-Penerima: ${users[chatId].penerima}
-Berat: ${users[chatId].berat} kg
-Total: Rp${users[chatId].total}
-
-Setelah buat resi, kirim:
-/resi ${idTransaksi} NOMORRESI`);
-
-    users[chatId] = { step: 0 };
-  }
-
+        delete orders[chatId];
+    }
 });
 
-// ADMIN KIRIM RESI
-bot.onText(/\/resi (.+) (.+)/, (msg, match) => {
+bot.onText(/\/resi (.+)/, (msg, match) => {
+    if (msg.chat.id.toString() !== ADMIN_ID) return;
 
-  if (msg.chat.id.toString() !== ADMIN_ID) return;
+    const data = match[1].split(" ");
+    const orderId = data[0];
+    const resi = data[1];
 
-  const id = match[1];
-  const nomorResi = match[2];
+    for (let chatId in orders) {
+        if (orders[chatId].id == orderId) {
+            bot.sendMessage(chatId,
+                `📦 Resi Anda:\n${resi}\n\n` +
+                `Silakan proses di Indomaret terdekat.`
+            );
+            delete orders[chatId];
+            break;
+        }
+    }
 
-  const trx = transaksi.find(t => t.id === id);
-  if (!trx) return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
-
-  bot.sendMessage(trx.user,
-`✅ *RESI SUDAH DIBUAT*
-
-Nomor Resi:
-${nomorResi}
-
-Terima kasih 🙏`,
-{ parse_mode: "Markdown" });
-
-  bot.sendMessage(msg.chat.id, "Resi berhasil dikirim ke user.");
+    bot.sendMessage(msg.chat.id, `Resi ${resi} berhasil dikirim.`);
 });
+
+console.log("Bot Titip Paket Aktif ✅");
