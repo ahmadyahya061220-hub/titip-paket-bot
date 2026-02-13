@@ -22,16 +22,29 @@ const transporter = nodemailer.createTransport({
 });
 
 // Kirim email dengan callback sukses/gagal
-function kirimEmail(to, subject, html, callback) {
-  transporter.sendMail({ from: process.env.EMAIL_USER, to, subject, html }, (err, info) => {
-    if (err) {
-      console.error("Gagal kirim email:", err);
-      if (callback) callback(false);
+if (user.step === "aktivasi_email") {
+  const email = text;
+  user.email = email;
+
+  const subject = "Aktivasi Email Bot Titip Paket";
+  const html = `
+    <h3>Email Anda Berhasil Diverifikasi!</h3>
+    <p>Email <b>${email}</b> sudah terhubung dengan bot Titip Paket.</p>
+    <p>Sekarang Anda bisa menggunakan semua fitur bot termasuk Titip Paket dan nomor resi otomatis.</p>
+  `;
+
+  // Menggunakan fungsi retry
+  kirimEmailWithRetry(email, subject, html, 2, (success) => {
+    if (success) {
+      user.verified = true;
+      user.token = crypto.randomBytes(16).toString("hex");
+      user.step = 0;
+      bot.sendMessage(chatId, `✅ Email ${email} berhasil diverifikasi dan email percobaan sudah masuk inbox Anda.`);
     } else {
-      console.log("Email terkirim:", info.response);
-      if (callback) callback(true);
+      bot.sendMessage(chatId, `⚠ Email ${email} gagal dikirim setelah 3 percobaan. Silakan cek kembali alamat email Anda.`);
     }
   });
+  return;
 }
 
 // ----- Database sementara -----
