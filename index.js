@@ -11,7 +11,6 @@ if (!token) {
 const isRailway = process.env.RAILWAY_STATIC_URL ? true : false;
 let bot;
 
-// ===== SETUP BOT MODE =====
 if (isRailway) {
   const app = express();
   app.use(express.json());
@@ -36,89 +35,111 @@ if (isRailway) {
   console.log("Bot berjalan (Polling Mode)");
 }
 
-// ===== ANTI CRASH =====
 bot.on("polling_error", console.log);
 process.on("uncaughtException", console.error);
 process.on("unhandledRejection", console.error);
 
-// ===== DATA SEMENTARA =====
 const userSession = {};
 
-// ===== MENU UTAMA =====
 const mainMenu = {
   reply_markup: {
     keyboard: [
       ["📦 Titip Paket"],
       ["💰 Cek Tarif"],
-      ["📄 Cek Resi"],
-      ["ℹ️ Bantuan"]
+      ["📄 Cek Resi"]
     ],
     resize_keyboard: true
   }
 };
 
-// ===== START =====
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(
-    msg.chat.id,
-    "🤖 BOT TITIP PAKET\n\nSilakan pilih menu:",
-    mainMenu
-  );
+  bot.sendMessage(msg.chat.id, "🤖 BOT TITIP PAKET USAHA\n\nPilih menu:", mainMenu);
 });
 
-// ===== HANDLE MENU =====
 bot.on("message", (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
   if (text === "📦 Titip Paket") {
-    userSession[chatId] = { step: "berat" };
-    bot.sendMessage(chatId, "Masukkan berat paket (kg):");
+    userSession[chatId] = { step: "nama_pengirim" };
+    bot.sendMessage(chatId, "Masukkan NAMA PENGIRIM:");
   }
 
   else if (text === "💰 Cek Tarif") {
-    bot.sendMessage(chatId, "Tarif Rp 1.000/paket");
+    bot.sendMessage(chatId, "Tarif dasar 1kg = Rp15.000");
   }
 
   else if (text === "📄 Cek Resi") {
-    bot.sendMessage(chatId, "Masukkan nomor resi:");
     userSession[chatId] = { step: "cek_resi" };
+    bot.sendMessage(chatId, "Masukkan nomor resi:");
   }
 
-  else if (text === "ℹ️ Bantuan") {
-    bot.sendMessage(chatId, "Hubungi admin untuk bantuan.");
+  // ===== FORM STEP =====
+
+  else if (userSession[chatId]?.step === "nama_pengirim") {
+    userSession[chatId].nama_pengirim = text;
+    userSession[chatId].step = "hp_pengirim";
+    bot.sendMessage(chatId, "Masukkan NO HP PENGIRIM:");
   }
 
-  // ===== STEP FORM TITIP PAKET =====
+  else if (userSession[chatId]?.step === "hp_pengirim") {
+    userSession[chatId].hp_pengirim = text;
+    userSession[chatId].step = "nama_penerima";
+    bot.sendMessage(chatId, "Masukkan NAMA PENERIMA:");
+  }
+
+  else if (userSession[chatId]?.step === "nama_penerima") {
+    userSession[chatId].nama_penerima = text;
+    userSession[chatId].step = "hp_penerima";
+    bot.sendMessage(chatId, "Masukkan NO HP PENERIMA:");
+  }
+
+  else if (userSession[chatId]?.step === "hp_penerima") {
+    userSession[chatId].hp_penerima = text;
+    userSession[chatId].step = "alamat_penerima";
+    bot.sendMessage(chatId, "Masukkan ALAMAT PENERIMA:");
+  }
+
+  else if (userSession[chatId]?.step === "alamat_penerima") {
+    userSession[chatId].alamat_penerima = text;
+    userSession[chatId].step = "berat";
+    bot.sendMessage(chatId, "Masukkan BERAT (kg):");
+  }
+
   else if (userSession[chatId]?.step === "berat") {
     userSession[chatId].berat = text;
     userSession[chatId].step = "panjang";
-    bot.sendMessage(chatId, "Masukkan panjang (cm):");
+    bot.sendMessage(chatId, "Masukkan PANJANG (cm):");
   }
 
   else if (userSession[chatId]?.step === "panjang") {
     userSession[chatId].panjang = text;
     userSession[chatId].step = "lebar";
-    bot.sendMessage(chatId, "Masukkan lebar (cm):");
+    bot.sendMessage(chatId, "Masukkan LEBAR (cm):");
   }
 
   else if (userSession[chatId]?.step === "lebar") {
     userSession[chatId].lebar = text;
     userSession[chatId].step = "tinggi";
-    bot.sendMessage(chatId, "Masukkan tinggi (cm):");
+    bot.sendMessage(chatId, "Masukkan TINGGI (cm):");
   }
 
   else if (userSession[chatId]?.step === "tinggi") {
+
     userSession[chatId].tinggi = text;
 
-    const resi = "IDP" + Math.floor(Math.random() * 1000000000);
+    const resi = "IDP" + Date.now();
 
-    bot.sendMessage(
-      chatId,
-      `✅ Paket berhasil dibuat!\n\n` +
+    bot.sendMessage(chatId,
+      `✅ DATA PAKET BERHASIL DIBUAT\n\n` +
+      `👤 Pengirim: ${userSession[chatId].nama_pengirim}\n` +
+      `📞 HP Pengirim: ${userSession[chatId].hp_pengirim}\n\n` +
+      `👤 Penerima: ${userSession[chatId].nama_penerima}\n` +
+      `📞 HP Penerima: ${userSession[chatId].hp_penerima}\n` +
+      `🏠 Alamat: ${userSession[chatId].alamat_penerima}\n\n` +
       `📦 Berat: ${userSession[chatId].berat} kg\n` +
       `📏 Dimensi: ${userSession[chatId].panjang}x${userSession[chatId].lebar}x${userSession[chatId].tinggi} cm\n\n` +
-      `🧾 Nomor Resi: ${resi}`
+      `🧾 NOMOR RESI: ${resi}`
     );
 
     delete userSession[chatId];
