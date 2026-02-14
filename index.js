@@ -66,7 +66,7 @@ bot.on("message", (msg) => {
   }
 
   else if (text === "💰 Cek Tarif") {
-    bot.sendMessage(chatId, "Tarif dasar 1kg = Rp15.000");
+    bot.sendMessage(chatId, "Tarif Rp1.000/paket");
   }
 
   else if (text === "📄 Cek Resi") {
