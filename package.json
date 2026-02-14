@@ -1,17 +1,26 @@
 {
-  "name": "bot-titip-paket-ultra",
+  "name": "mkr-bot",
   "version": "1.0.0",
-  "description": "Bot Telegram Titip Paket Ultra-Final",
+  "description": "Telegram MKR Bot Stable Version",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
+  "keywords": [
+    "telegram",
+    "bot",
+    "mkr"
+  ],
+  "author": "Putru",
+  "license": "MIT",
   "dependencies": {
+    "dotenv": "^16.4.5",
     "express": "^4.18.2",
-    "nodemailer": "^6.9.3",
-    "telegraf": "^4.12.2",
-    "dotenv": "^16.3.1",
-    "ejs": "^3.1.9",
-    "body-parser": "^1.20.2"
+    "node-telegram-bot-api": "^0.64.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
   }
 }
