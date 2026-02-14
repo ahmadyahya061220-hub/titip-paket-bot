@@ -1,202 +1,124 @@
+
 require("dotenv").config();
-const { Telegraf, Markup } = require("telegraf");
+const TelegramBot = require("node-telegram-bot-api");
 const express = require("express");
-const nodemailer = require("nodemailer");
-const fs = require("fs");
-const path = require("path");
-const bodyParser = require("body-parser");
 
-// ===== CONFIG =====
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = process.env.ADMIN_ID;
-const EMAIL_ADDRESS = process.env.EMAIL_ADDRESS;
-const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
-const PORT = process.env.PORT || 3000;
-const TRANSAKSI_FILE = path.join(__dirname, "transaksi.json");
+const token = process.env.BOT_TOKEN;
+const bot = new TelegramBot(token, { polling: true });
 
-// ===== INIT =====
-if (!BOT_TOKEN || !ADMIN_ID) {
-  console.error("⚠ BOT_TOKEN atau ADMIN_ID belum di-set");
-  process.exit(1);
-}
-const bot = new Telegraf(BOT_TOKEN);
+// Anti crash basic
+process.on("uncaughtException", (err) => {
+  console.log("Error:", err.message);
+});
+
+process.on("unhandledRejection", (err) => {
+  console.log("Unhandled:", err);
+});
+
+// Express (buat Railway supaya tidak sleep)
 const app = express();
-app.set("view engine", "ejs");
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public")));
+app.get("/", (req, res) => {
+  res.send("Bot aktif 🚀");
+});
+app.listen(process.env.PORT || 3000);
 
-// ===== DATA =====
-let users = {};
-let transaksi = [];
-try {
-  if (!fs.existsSync(TRANSAKSI_FILE)) fs.writeFileSync(TRANSAKSI_FILE, "[]");
-  transaksi = JSON.parse(fs.readFileSync(TRANSAKSI_FILE, "utf-8") || "[]");
-} catch (e) {
-  console.error("Error load transaksi:", e.message);
-  transaksi = [];
-}
-
-// ===== HELPERS =====
-function saveTransaksi() {
-  try {
-    fs.writeFileSync(TRANSAKSI_FILE, JSON.stringify(transaksi, null, 2));
-  } catch (e) {
-    console.error("Error save transaksi:", e.message);
+// ================= MENU =================
+const menuKeyboard = {
+  reply_markup: {
+    keyboard: [
+      ["💰 Beli limit", "🛢 Cek limit"],
+      ["🔄 Convert limit", "🎁 Share limit"],
+      ["🎟 Redeem gift code", "👀 Cek NIK"],
+      ["⌚ Rekap presensi", "📄 Cek report kbk"],
+      ["🔎 Cari barcode", "🔥 Pelaksanaan PJR"],
+      ["📚 Listing produk", "🧾 Pembelian banyak"],
+      ["🏷 Cek harga", "📢 Planogram"],
+      ["🛒 Katalog indomaret"]
+    ],
+    resize_keyboard: true
   }
-}
+};
 
-function hitungHarga(berat) {
-  return 10000 * berat + 2000;
-}
-
-async function sendEmail(to, subject, text, retries = 3) {
-  if (!EMAIL_ADDRESS || !EMAIL_PASSWORD || !to.includes("@")) return false;
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: EMAIL_ADDRESS, pass: EMAIL_PASSWORD },
-      });
-      await transporter.sendMail({ from: EMAIL_ADDRESS, to, subject, text });
-      return true;
-    } catch (e) {
-      console.error(`Email attempt ${attempt} failed:`, e.message);
-      if (attempt === retries) return false;
-      await new Promise((res) => setTimeout(res, 3000));
-    }
-  }
-}
-
-// ===== BOT START + MENU =====
-bot.start(async (ctx) => {
-  const chatId = ctx.chat.id;
-  users[chatId] = { step: 0 };
-  try {
-    await ctx.reply(
-      "🚀 *LAYANAN TITIP PAKET*\nPilih menu di bawah:",
-      {
-        parse_mode: "Markdown",
-        reply_markup: Markup.inlineKeyboard([
-          [Markup.button.callback("📦 Titip Paket", "titip")],
-          [Markup.button.callback("📄 Riwayat Transaksi", "riwayat")],
-          [Markup.button.callback("ℹ️ Info Layanan", "info")],
-        ]),
-      }
-    );
-  } catch (e) {
-    console.error("Start error:", e.message);
-  }
+// ================= START =================
+bot.onText(/\/start/, (msg) => {
+  bot.sendMessage(msg.chat.id, "🤖 MKR BOT AKTIF\n\nSilakan pilih menu:", menuKeyboard);
 });
 
-// ===== CALLBACK MENU =====
-bot.on("callback_query", async (q) => {
-  try {
-    const chatId = q.message.chat.id;
-    users[chatId] = users[chatId] || { step: 0 };
-    switch (q.data) {
-      case "titip":
-        users[chatId].step = 1;
-        await bot.sendMessage(chatId, "Masukkan Nama Pengirim:");
-        break;
-      case "riwayat":
-        if (transaksi.length === 0) return bot.sendMessage(chatId, "Belum ada transaksi.");
-        let msg = "📄 Riwayat 10 terakhir:\n";
-        transaksi.slice(-10).forEach((t) => {
-          msg += `ID:${t.id} | ${t.data.nama} → ${t.data.penerima} | ${t.data.berat}kg | Rp${t.data.total}\n`;
-        });
-        await bot.sendMessage(chatId, msg);
-        break;
-      case "info":
-        await bot.sendMessage(
-          chatId,
-          "ℹ️ Info layanan:\n- Berat max 50kg\n- Gratis ongkir\n- Tracking realtime"
-        );
-        break;
-    }
-    await bot.answerCbQuery(q.id);
-  } catch (e) {
-    console.error("Callback error:", e.message);
-  }
-});
+// ================= COMMAND HANDLER =================
 
-// ===== MESSAGE HANDLER =====
-bot.on("message", async (msg) => {
+bot.on("message", (msg) => {
+  const text = msg.text;
   const chatId = msg.chat.id;
-  const text = msg.text || "";
-  users[chatId] = users[chatId] || { step: 0 };
-  try {
-    switch (users[chatId].step) {
-      case 1:
-        users[chatId].nama = text;
-        users[chatId].step = 2;
-        await bot.sendMessage(chatId, "Masukkan Nama Penerima:");
-        break;
-      case 2:
-        users[chatId].penerima = text;
-        users[chatId].step = 3;
-        await bot.sendMessage(chatId, "Masukkan Berat (kg):");
-        break;
-      case 3:
-        const berat = parseInt(text);
-        if (isNaN(berat) || berat <= 0) return bot.sendMessage(chatId, "⚠ Berat tidak valid");
-        users[chatId].berat = berat;
-        users[chatId].total = hitungHarga(berat);
-        users[chatId].step = 4;
-        await bot.sendMessage(
-          chatId,
-          `📦 Konfirmasi:\nPengirim: ${users[chatId].nama}\nPenerima: ${users[chatId].penerima}\nBerat: ${berat}kg\nTotal: Rp${users[chatId].total}\nMasukkan email Anda untuk konfirmasi:`,
-          { parse_mode: "Markdown" }
-        );
-        break;
-      case 4:
-        if (!text.includes("@")) return bot.sendMessage(chatId, "⚠ Email tidak valid");
-        users[chatId].email = text;
-        const id = "TRX" + Date.now();
-        transaksi.push({ id, user: chatId, data: users[chatId] });
-        saveTransaksi();
-        await sendEmail(
-          ADMIN_ID + "@telegram.fake",
-          "Transaksi Baru",
-          `ID:${id}\nPengirim:${users[chatId].nama}\nPenerima:${users[chatId].penerima}\nBerat:${users[chatId].berat}kg\nTotal:Rp${users[chatId].total}\nEmail:${users[chatId].email}`
-        );
-        await bot.sendMessage(chatId, `✅ Transaksi berhasil! ID: ${id}\nAdmin akan memproses resi.`);
-        users[chatId] = { step: 0 };
-        break;
-      default:
-        break;
-    }
-  } catch (e) {
-    console.error("Message error:", e.message);
+
+  if (text === "💰 Beli limit") {
+    bot.sendMessage(chatId, "Silakan gunakan command /sawer untuk beli limit.");
+  }
+
+  if (text === "🛢 Cek limit") {
+    bot.sendMessage(chatId, "Limit kamu saat ini: 100");
+  }
+
+  if (text === "🔄 Convert limit") {
+    bot.sendMessage(chatId, "Gunakan /convert untuk convert limit.");
+  }
+
+  if (text === "🎁 Share limit") {
+    bot.sendMessage(chatId, "Gunakan /makegiftcode untuk share limit.");
+  }
+
+  if (text === "🎟 Redeem gift code") {
+    bot.sendMessage(chatId, "Masukkan kode dengan format:\n/giftcode KODE");
+  }
+
+  if (text === "👀 Cek NIK") {
+    bot.sendMessage(chatId, "Gunakan /ceknik untuk cek NIK.");
+  }
+
+  if (text === "⌚ Rekap presensi") {
+    bot.sendMessage(chatId, "Gunakan /presensi");
+  }
+
+  if (text === "📄 Cek report kbk") {
+    bot.sendMessage(chatId, "Gunakan /kbk");
+  }
+
+  if (text === "🔎 Cari barcode") {
+    bot.sendMessage(chatId, "Gunakan /idm");
+  }
+
+  if (text === "🔥 Pelaksanaan PJR") {
+    bot.sendMessage(chatId, "Gunakan /pjr");
+  }
+
+  if (text === "📚 Listing produk") {
+    bot.sendMessage(chatId, "Gunakan /rak");
+  }
+
+  if (text === "🧾 Pembelian banyak") {
+    bot.sendMessage(chatId, "Gunakan /bulk");
+  }
+
+  if (text === "🏷 Cek harga") {
+    bot.sendMessage(chatId, "Gunakan /alfa");
+  }
+
+  if (text === "📢 Planogram") {
+    bot.sendMessage(chatId, "Gunakan /planogram");
+  }
+
+  if (text === "🛒 Katalog indomaret") {
+    bot.sendMessage(chatId, "Gunakan /katalog");
   }
 });
 
-// ===== ADMIN KIRIM RESI =====
-bot.onText(/\/resi (.+) (.+)/, async (msg, match) => {
-  try {
-    if (msg.chat.id.toString() !== ADMIN_ID) return;
-    const id = match[1],
-      nomorResi = match[2];
-    const trx = transaksi.find((t) => t.id === id);
-    if (!trx) return bot.sendMessage(msg.chat.id, "ID tidak ditemukan.");
-    trx.data.resi = nomorResi;
-    saveTransaksi();
-    await bot.sendMessage(trx.user, `✅ Resi: ${nomorResi} sudah dibuat. Terima kasih 🙏`);
-    await bot.sendMessage(msg.chat.id, "Resi berhasil dikirim ke user.");
-  } catch (e) {
-    console.error("Admin resi error:", e.message);
-  }
+// ================= COMMAND REAL =================
+
+bot.onText(/\/limit/, (msg) => {
+  bot.sendMessage(msg.chat.id, "Limit kamu: 100");
 });
 
-// ===== DASHBOARD MINI =====
-app.get("/admin", (req, res) => {
-  res.render("dashboard", { transaksi });
+bot.onText(/\/sawer/, (msg) => {
+  bot.sendMessage(msg.chat.id, "Fitur beli limit sedang diproses.");
 });
 
-// ===== GLOBAL ERROR =====
-bot.catch((err) => console.error("Bot error:", err.message));
-process.on("unhandledRejection", (reason) => console.error("Unhandled Rejection:", reason));
-process.on("uncaughtException", (err) => console.error("Uncaught Exception:", err.message));
-
-// ===== LAUNCH =====
-bot.launch().then(() => console.log("Bot Titip Paket berjalan ✅"));
-app.listen(PORT, () => console.log(`Server berjalan di port ${PORT}`));
+console.log("Bot berjalan...");
